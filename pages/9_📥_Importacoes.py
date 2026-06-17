@@ -22,7 +22,7 @@ from utils import (
     formatar_moeda, gerar_id, agora,
     salvar_despesas_novas, salvar_receitas_novas,
     salvar_parquet, remover_por_fonte, listar_cartoes_ativos,
-    aplicar_mapeamentos,
+    aplicar_mapeamentos, fuzzy_match_fatura,
 )
 from activity_log import registrar as log_atividade, exibir_log
 
@@ -478,17 +478,52 @@ with aba2:
 
                     st.divider()
 
-                    if st.button("✅ Confirmar Importação C6", type="primary", use_container_width=True, key="btn_c6_unico"):
-                        # Remove apenas pré-lançamentos MANUAIS do mês — nunca toca em Notion
-                        n_rem = remover_por_fonte("despesas", fontes=["Manual"],
-                                                  mes=mes_fatura, ano=ano_fatura, cartao=cartao_sel)
-                        if n_rem:
-                            st.info(f"🔄 {n_rem} pré-lançamento(s) manual(is) substituídos pela fatura oficial.")
+                    # ── Fuzzy matching: compara fatura com lançamentos existentes ──
+                    df_existente_cartao = pd.DataFrame()
+                    if not df_historico.empty and "data" in df_historico.columns:
+                        dt_col = pd.to_datetime(df_historico["data"], errors="coerce")
+                        mask_cartao = (
+                            df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) |
+                            df_historico.get("cartao", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
+                        )
+                        df_existente_cartao = df_historico[mask_cartao].copy()
 
-                        total_d = total_r = 0
-                        if not df_desp.empty:
+                    resultado_fuzzy = fuzzy_match_fatura(df_desp, df_existente_cartao, similaridade_min=75, janela_dias=5)
+                    idxs_dup  = set(resultado_fuzzy["duplicatas"])
+                    idxs_novo = set(resultado_fuzzy["novos"])
+                    matches   = resultado_fuzzy["matches"]
+
+                    df_ja_existe = df_desp.loc[list(idxs_dup)] if idxs_dup else pd.DataFrame()
+                    df_a_inserir = df_desp.loc[list(idxs_novo)] if idxs_novo else pd.DataFrame()
+
+                    # Preview inteligente
+                    if not df_ja_existe.empty:
+                        with st.expander(f"✅ {len(df_ja_existe)} item(ns) já lançados — não serão duplicados", expanded=False):
+                            for i, m in enumerate(matches):
+                                idx_fat, idx_ex, score = m
+                                row_fat = df_desp.loc[idx_fat]
+                                row_ex  = df_existente_cartao.loc[idx_ex] if idx_ex in df_existente_cartao.index else None
+                                desc_ex = row_ex["descricao"] if row_ex is not None else "?"
+                                cat_ex  = row_ex["categoria"] if row_ex is not None else "?"
+                                st.markdown(
+                                    f"🔗 **{row_fat['_desc']}** → já existe como *\"{desc_ex}\"* "
+                                    f"(similaridade {score}%) · categoria mantida: **{cat_ex}**"
+                                )
+
+                    if not df_a_inserir.empty:
+                        with st.expander(f"🆕 {len(df_a_inserir)} item(ns) novos — serão inseridos", expanded=True):
+                            prev = df_a_inserir[["_data_orig","_desc","_valor","_cat"]].copy()
+                            prev.columns = ["Compra","Descrição","Valor","Categoria"]
+                            prev["Valor"] = prev["Valor"].apply(formatar_moeda)
+                            st.dataframe(prev, use_container_width=True, hide_index=True)
+                    else:
+                        st.success("🎉 Todos os itens da fatura já estão lançados! Nenhuma ação necessária.")
+
+                    if not df_a_inserir.empty:
+                        if st.button("✅ Confirmar Importação C6", type="primary", use_container_width=True, key="btn_c6_unico"):
+                            total_d = total_r = 0
                             linhas = []
-                            for _, r in df_desp.iterrows():
+                            for _, r in df_a_inserir.iterrows():
                                 linhas.append({
                                     "id": gerar_id(), "data": data_fat_fmt,
                                     "descricao": r["_desc"], "categoria": r["_cat"],
@@ -500,23 +535,23 @@ with aba2:
                             if linhas:
                                 total_d = salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas)))
 
-                        if not df_devol.empty:
-                            linhas = []
-                            for _, r in df_devol.iterrows():
-                                linhas.append({
-                                    "id": gerar_id(), "data": data_fat_fmt,
-                                    "descricao": r["_desc"], "categoria": "🔄 Reembolso",
-                                    "valor": round(float(r["_valor"]), 2),
-                                    "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
-                                    "observacao": f"Reembolso de {r['_data_orig']}",
-                                    "fonte": "C6 Bank", "criado_em": agora(),
-                                })
-                            if linhas:
-                                total_r = salvar_receitas_novas(pd.DataFrame(linhas))
+                            if not df_devol.empty:
+                                linhas_r = []
+                                for _, r in df_devol.iterrows():
+                                    linhas_r.append({
+                                        "id": gerar_id(), "data": data_fat_fmt,
+                                        "descricao": r["_desc"], "categoria": "🔄 Reembolso",
+                                        "valor": round(float(r["_valor"]), 2),
+                                        "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
+                                        "observacao": f"Reembolso de {r['_data_orig']}",
+                                        "fonte": "C6 Bank", "criado_em": agora(),
+                                    })
+                                if linhas_r:
+                                    total_r = salvar_receitas_novas(pd.DataFrame(linhas_r))
 
-                        log_atividade("importou fatura C6 (único mês)", f"{total_d} despesas importadas")
-                        mensagem_sucesso(f"✅ {total_d} despesas e {total_r} reembolsos importados!")
-                        st.balloons()
+                            log_atividade("importou fatura C6 (único mês)", f"{total_d} novos + {len(df_ja_existe)} já existiam")
+                            mensagem_sucesso(f"✅ {total_d} novos lançamentos importados! ({len(df_ja_existe)} duplicatas ignoradas)")
+                            st.balloons()
 
             except Exception as e:
                 mensagem_erro(f"Erro: {e}")

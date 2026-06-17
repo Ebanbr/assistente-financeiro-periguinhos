@@ -370,6 +370,68 @@ def listar_cartoes_ativos() -> list:
         return []
     return df["nome"].tolist() if "nome" in df.columns else []
 
+# ── FUZZY MATCHING ───────────────────────────────────────────
+
+def fuzzy_match_fatura(df_fatura: pd.DataFrame, df_existente: pd.DataFrame,
+                        similaridade_min: int = 75, janela_dias: int = 3) -> dict:
+    """
+    Compara itens da fatura com lançamentos já existentes.
+    Retorna dict com três listas:
+      - 'duplicatas': itens da fatura que já existem (mesmo valor ±0, data próxima, desc similar)
+      - 'novos': itens da fatura sem correspondência (devem ser inseridos)
+      - 'matches': lista de (idx_fatura, idx_existente, score) para log
+    """
+    try:
+        from rapidfuzz import fuzz
+    except ImportError:
+        return {"duplicatas": [], "novos": list(range(len(df_fatura))), "matches": []}
+
+    duplicatas = []
+    novos      = []
+    matches    = []
+
+    if df_existente.empty or "descricao" not in df_existente.columns:
+        return {"duplicatas": [], "novos": list(range(len(df_fatura))), "matches": []}
+
+    df_ex = df_existente.copy()
+    df_ex["_dt"] = pd.to_datetime(df_ex.get("data", pd.Series(dtype=str)), errors="coerce")
+    df_ex["_valor_num"] = pd.to_numeric(df_ex.get("valor", pd.Series(dtype=float)), errors="coerce").fillna(0)
+
+    for i, row in df_fatura.iterrows():
+        val_fat  = float(row.get("_valor", row.get("valor", 0)))
+        desc_fat = str(row.get("_desc", row.get("descricao", ""))).strip().lower()
+        try:
+            data_fat = pd.to_datetime(str(row.get("_data_orig", row.get("data", ""))), dayfirst=True, errors="coerce")
+        except:
+            data_fat = pd.NaT
+
+        melhor_score = 0
+        melhor_idx   = None
+
+        for j, ex in df_ex.iterrows():
+            # Filtro por valor (exato)
+            if abs(ex["_valor_num"] - val_fat) > 0.01:
+                continue
+            # Filtro por data (janela)
+            if pd.notna(data_fat) and pd.notna(ex["_dt"]):
+                delta = abs((data_fat - ex["_dt"]).days)
+                if delta > janela_dias:
+                    continue
+            # Similaridade da descrição
+            score = fuzz.partial_ratio(desc_fat, str(ex["descricao"]).strip().lower())
+            if score > melhor_score:
+                melhor_score = score
+                melhor_idx   = j
+
+        if melhor_score >= similaridade_min and melhor_idx is not None:
+            duplicatas.append(i)
+            matches.append((i, melhor_idx, melhor_score))
+        else:
+            novos.append(i)
+
+    return {"duplicatas": duplicatas, "novos": novos, "matches": matches}
+
+
 # ── EDITAR / DELETAR ─────────────────────────────────────────
 
 def editar_linha(arquivo: str, id_registro: str, novos_dados: dict) -> bool:

@@ -5,3 +5,4 @@ pyarrow
 python-dateutil
 gspread
 google-auth
+rapidfuzz

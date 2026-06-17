@@ -360,203 +360,137 @@ with aba2:
         key="modo_c6"
     )
 
-    # ── Modo fatura única ─────────────────────────────────────
+    # ── Modo fatura única (aceita múltiplos arquivos) ─────────
     if modo == "📄 Fatura única (1 mês)":
-        st.info(
-            "Importe a fatura fechada do mês. O app vai:\n"
-            "- Remover os lançamentos do **Notion** desse cartão/mês\n"
-            "- Remover lançamentos **Manuais** desse cartão/mês\n"
-            "- Inserir os itens **oficiais da fatura** no lugar"
+        st.info("Envie um ou mais CSVs — cada um é uma fatura de um mês. Você define o mês/ano de cada arquivo.")
+
+        arquivos_c6 = st.file_uploader(
+            "CSVs de fatura C6 (separado por ;) — pode selecionar vários de uma vez",
+            type=["csv"], key="c6_upload", accept_multiple_files=True
         )
 
-        col_mes, col_ano = st.columns(2)
-        with col_mes:
-            mes_fatura = st.selectbox(
-                "Mês da Fatura:",
-                range(1, 13),
-                index=datetime.now().month - 1,
-                format_func=lambda m: MESES_NOME[m-1],
-                key="mes_fat_c6"
-            )
-        with col_ano:
-            ano_fatura = st.selectbox(
-                "Ano da Fatura:",
-                range(2024, 2028),
-                index=1,
-                key="ano_fat_c6"
-            )
+        if arquivos_c6:
+            # Passo 1: coleta mês/ano de cada arquivo
+            configs_faturas = []
+            for idx_arq, arq in enumerate(arquivos_c6):
+                with st.expander(f"📄 `{arq.name}`", expanded=True):
+                    col_mes, col_ano = st.columns(2)
+                    with col_mes:
+                        mes_arq = st.selectbox("Mês da Fatura:", range(1, 13),
+                            index=datetime.now().month - 1,
+                            format_func=lambda m: MESES_NOME[m-1],
+                            key=f"mes_fat_{idx_arq}")
+                    with col_ano:
+                        ano_arq = st.selectbox("Ano da Fatura:", range(2024, 2029),
+                            index=1, key=f"ano_fat_{idx_arq}")
+                configs_faturas.append((arq, mes_arq, ano_arq))
 
-        data_fat_fmt = f"{ano_fatura:04d}-{mes_fatura:02d}-01"
+            st.divider()
 
-        df_atual = ler_csv(DESPESAS_FILE)
-        if not df_atual.empty and "fonte" in df_atual.columns and "data" in df_atual.columns:
-            dt_col = pd.to_datetime(df_atual["data"], format="%Y-%m-%d", errors="coerce")
-            mesmo_mes = (dt_col.dt.month == mes_fatura) & (dt_col.dt.year == ano_fatura)
-            cartao_lower = cartao_sel.strip().lower()
-            bate_cartao = (
-                df_atual["forma_pagamento"].astype(str).str.strip().str.lower().eq(cartao_lower) |
-                df_atual["banco"].astype(str).str.strip().str.lower().eq(cartao_lower) if "banco" in df_atual.columns else pd.Series([False]*len(df_atual))
-            )
-            serao_removidos = df_atual[mesmo_mes & bate_cartao & df_atual["fonte"].isin(["Notion","Manual"])]
-            if not serao_removidos.empty:
-                st.warning(
-                    f"⚠️ {len(serao_removidos)} lançamento(s) de **{cartao_sel}** em "
-                    f"{mes_fatura:02d}/{ano_fatura} serão substituídos pela fatura oficial."
+            # Passo 2: preview de cada fatura
+            df_historico = ler_csv(DESPESAS_FILE)
+            cat_historico = {}
+            if not df_historico.empty and "descricao" in df_historico.columns:
+                df_historico["categoria"] = df_historico["categoria"].astype(str)
+                cat_historico = (
+                    df_historico[~df_historico["categoria"].str.contains("Outros", na=False)]
+                    .groupby("descricao")["categoria"]
+                    .agg(lambda x: x.value_counts().index[0])
+                    .to_dict()
                 )
-                with st.expander("Ver o que será substituído"):
-                    st.dataframe(
-                        serao_removidos[["data","descricao","valor","fonte"]].assign(
-                            data=serao_removidos["data"].apply(to_br)
-                        ),
-                        use_container_width=True, hide_index=True
-                    )
 
-        arquivo_c6 = st.file_uploader("CSV da fatura C6 (separado por ;)", type=["csv"], key="c6_upload")
-
-        if arquivo_c6:
-            try:
-                df_c6 = pd.read_csv(StringIO(arquivo_c6.read().decode("utf-8-sig")), sep=";")
-                st.dataframe(df_c6.head(5), use_container_width=True, hide_index=True)
-
+            def _processar_csv(arq, mes_fatura, ano_fatura):
+                arq.seek(0)
+                df = pd.read_csv(StringIO(arq.read().decode("utf-8-sig")), sep=";")
                 colunas_req = ["Data de Compra", "Descrição", "Categoria", "Valor (em R$)"]
-                faltando = [c for c in colunas_req if c not in df_c6.columns]
+                faltando = [c for c in colunas_req if c not in df.columns]
                 if faltando:
-                    mensagem_erro(f"Colunas não encontradas: {faltando}")
-                else:
-                    ignorar = ["Inclusao","Inclusão","Estorno","Anuidade","Taxa","Juros"]
-                    df_c6 = df_c6[~df_c6["Descrição"].str.contains("|".join(ignorar), case=False, na=False)].copy()
-                    df_c6["_val"] = pd.to_numeric(df_c6["Valor (em R$)"], errors="coerce")
+                    return None, None, f"Colunas não encontradas: {faltando}"
+                ignorar = ["Inclusao","Inclusão","Estorno","Anuidade","Taxa","Juros"]
+                df = df[~df["Descrição"].str.contains("|".join(ignorar), case=False, na=False)].copy()
+                df["_val"]      = pd.to_numeric(df["Valor (em R$)"], errors="coerce")
+                df["_data_orig"]= df["Data de Compra"].apply(to_br)
+                df["_desc"]     = df["Descrição"].str.strip()
+                df["_cat"]      = df["Categoria"].apply(lambda x: MAPA_CAT_C6.get(str(x).strip(), "📦 Outros"))
+                desp  = df[df["_val"] > 0].copy()
+                devol = df[df["_val"] < 0].copy()
+                def _herdar(row):
+                    if row["_cat"] != "📦 Outros": return row["_cat"]
+                    return cat_historico.get(row["_desc"], "📦 Outros")
+                if not desp.empty:
+                    desp["_valor"] = desp["_val"].abs()
+                    desp["_cat"]   = desp.apply(_herdar, axis=1)
+                if not devol.empty:
+                    devol["_valor"] = devol["_val"].abs()
+                    devol["_desc"]  = devol["Descrição"].apply(lambda x: f"Reembolso - {str(x).strip()}")
+                return desp, devol, None
 
-                    df_desp  = df_c6[df_c6["_val"] > 0].copy()
-                    df_devol = df_c6[df_c6["_val"] < 0].copy()
+            # Mostra resumo de todas as faturas
+            resumo_geral = []
+            faturas_dados = {}
+            for arq, mes_f, ano_f in configs_faturas:
+                desp, devol, erro = _processar_csv(arq, mes_f, ano_f)
+                if erro:
+                    st.error(f"`{arq.name}`: {erro}")
+                    continue
+                faturas_dados[(mes_f, ano_f)] = (desp, devol, arq.name)
+                resumo_geral.append({
+                    "Fatura": f"{MESES_NOME[mes_f-1]}/{ano_f}",
+                    "Arquivo": arq.name,
+                    "Despesas": formatar_moeda(desp["_valor"].sum() if not desp.empty else 0),
+                    "Reembolsos": formatar_moeda(devol["_valor"].sum() if not devol.empty else 0),
+                    "Itens": len(desp) + len(devol),
+                })
 
-                    df_desp["_data_orig"] = df_desp["Data de Compra"].apply(to_br)
-                    df_desp["_valor"]     = df_desp["_val"].abs()
-                    df_desp["_desc"]      = df_desp["Descrição"].str.strip()
-                    df_desp["_cat"]       = df_desp["Categoria"].apply(lambda x: MAPA_CAT_C6.get(str(x).strip(), "📦 Outros"))
+            if resumo_geral:
+                st.markdown("#### 📋 Resumo das faturas a importar")
+                st.dataframe(pd.DataFrame(resumo_geral), use_container_width=True, hide_index=True)
 
-                    # ── Herdar categorias de lançamentos anteriores ───
-                    # Se o mesmo estabelecimento já foi categorizado antes, usa essa categoria
-                    df_historico = ler_csv(DESPESAS_FILE)
-                    if not df_historico.empty and "descricao" in df_historico.columns and "categoria" in df_historico.columns:
-                        df_historico["categoria"] = df_historico["categoria"].astype(str)
-                        # Mapeia descrição → categoria mais usada no histórico
-                        cat_historico = (
-                            df_historico[~df_historico["categoria"].str.contains("Outros", na=False)]
-                            .groupby("descricao")["categoria"]
-                            .agg(lambda x: x.value_counts().index[0])
-                            .to_dict()
-                        )
-                        def herdar_categoria(row):
-                            if row["_cat"] != "📦 Outros":
-                                return row["_cat"]  # já tem categoria boa pelo MAPA_CAT_C6
-                            return cat_historico.get(row["_desc"], "📦 Outros")
-                        df_desp["_cat"] = df_desp.apply(herdar_categoria, axis=1)
+                if st.button("✅ Confirmar e Importar Todas", type="primary", use_container_width=True, key="btn_c6_multi_unico"):
+                    total_d_geral = total_r_geral = 0
+                    for (mes_fatura, ano_fatura), (df_desp, df_devol, nome_arq) in faturas_dados.items():
+                        data_fat_fmt = f"{ano_fatura:04d}-{mes_fatura:02d}-01"
 
-                    df_devol["_data_orig"] = df_devol["Data de Compra"].apply(to_br)
-                    df_devol["_valor"]     = df_devol["_val"].abs()
-                    df_devol["_desc"]      = df_devol["Descrição"].apply(lambda x: f"Reembolso - {str(x).strip()}")
+                        # Fuzzy matching
+                        df_existente_cartao = pd.DataFrame()
+                        if not df_historico.empty:
+                            mask_c = (
+                                df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) |
+                                df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
+                            )
+                            df_existente_cartao = df_historico[mask_c].copy()
 
-                    st.markdown(f"**✅ {len(df_desp)} despesas · {len(df_devol)} reembolsos — Fatura {MESES_NOME[mes_fatura-1]}/{ano_fatura}**")
+                        resultado = fuzzy_match_fatura(df_desp, df_existente_cartao, similaridade_min=75, janela_dias=5)
+                        df_a_inserir = df_desp.loc[list(resultado["novos"])] if resultado["novos"] else pd.DataFrame()
+                        n_dup = len(resultado["duplicatas"])
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.markdown(f"**💸 Despesas ({len(df_desp)})**")
-                        if not df_desp.empty:
-                            prev = df_desp[["_data_orig","_desc","_valor"]].copy()
-                            prev.columns = ["Compra","Descrição","Valor"]
-                            prev["Valor"] = prev["Valor"].apply(formatar_moeda)
-                            st.dataframe(prev, use_container_width=True, hide_index=True, height=280)
-                            st.markdown(f"**Total: {formatar_moeda(df_desp['_valor'].sum())}**")
-                    with col2:
-                        st.markdown(f"**💰 Reembolsos ({len(df_devol)})**")
+                        if not df_a_inserir.empty:
+                            linhas = [{
+                                "id": gerar_id(), "data": data_fat_fmt,
+                                "descricao": r["_desc"], "categoria": r["_cat"],
+                                "valor": round(float(r["_valor"]), 2),
+                                "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
+                                "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
+                                "fonte": "C6 Bank", "criado_em": agora(),
+                            } for _, r in df_a_inserir.iterrows()]
+                            total_d_geral += salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas)))
+
                         if not df_devol.empty:
-                            prev = df_devol[["_data_orig","_desc","_valor"]].copy()
-                            prev.columns = ["Compra","Descrição","Valor"]
-                            prev["Valor"] = prev["Valor"].apply(formatar_moeda)
-                            st.dataframe(prev, use_container_width=True, hide_index=True, height=280)
-                            st.markdown(f"**Total: {formatar_moeda(df_devol['_valor'].sum())}**")
+                            linhas_r = [{
+                                "id": gerar_id(), "data": data_fat_fmt,
+                                "descricao": r["_desc"], "categoria": "🔄 Reembolso",
+                                "valor": round(float(r["_valor"]), 2),
+                                "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
+                                "observacao": f"Reembolso de {r['_data_orig']}",
+                                "fonte": "C6 Bank", "criado_em": agora(),
+                            } for _, r in df_devol.iterrows()]
+                            total_r_geral += salvar_receitas_novas(pd.DataFrame(linhas_r))
 
-                    st.divider()
+                        st.info(f"✅ {MESES_NOME[mes_fatura-1]}/{ano_fatura}: {len(df_a_inserir)} novos, {n_dup} já existiam")
 
-                    # ── Fuzzy matching: compara fatura com lançamentos existentes ──
-                    df_existente_cartao = pd.DataFrame()
-                    if not df_historico.empty and "data" in df_historico.columns:
-                        dt_col = pd.to_datetime(df_historico["data"], errors="coerce")
-                        mask_cartao = (
-                            df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) |
-                            df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
-                        )
-                        df_existente_cartao = df_historico[mask_cartao].copy()
-
-                    resultado_fuzzy = fuzzy_match_fatura(df_desp, df_existente_cartao, similaridade_min=75, janela_dias=5)
-                    idxs_dup  = set(resultado_fuzzy["duplicatas"])
-                    idxs_novo = set(resultado_fuzzy["novos"])
-                    matches   = resultado_fuzzy["matches"]
-
-                    df_ja_existe = df_desp.loc[list(idxs_dup)] if idxs_dup else pd.DataFrame()
-                    df_a_inserir = df_desp.loc[list(idxs_novo)] if idxs_novo else pd.DataFrame()
-
-                    # Preview inteligente
-                    if not df_ja_existe.empty:
-                        with st.expander(f"✅ {len(df_ja_existe)} item(ns) já lançados — não serão duplicados", expanded=False):
-                            for i, m in enumerate(matches):
-                                idx_fat, idx_ex, score = m
-                                row_fat = df_desp.loc[idx_fat]
-                                row_ex  = df_existente_cartao.loc[idx_ex] if idx_ex in df_existente_cartao.index else None
-                                desc_ex = row_ex["descricao"] if row_ex is not None else "?"
-                                cat_ex  = row_ex["categoria"] if row_ex is not None else "?"
-                                st.markdown(
-                                    f"🔗 **{row_fat['_desc']}** → já existe como *\"{desc_ex}\"* "
-                                    f"(similaridade {score}%) · categoria mantida: **{cat_ex}**"
-                                )
-
-                    if not df_a_inserir.empty:
-                        with st.expander(f"🆕 {len(df_a_inserir)} item(ns) novos — serão inseridos", expanded=True):
-                            prev = df_a_inserir[["_data_orig","_desc","_valor","_cat"]].copy()
-                            prev.columns = ["Compra","Descrição","Valor","Categoria"]
-                            prev["Valor"] = prev["Valor"].apply(formatar_moeda)
-                            st.dataframe(prev, use_container_width=True, hide_index=True)
-                    else:
-                        st.success("🎉 Todos os itens da fatura já estão lançados! Nenhuma ação necessária.")
-
-                    if not df_a_inserir.empty:
-                        if st.button("✅ Confirmar Importação C6", type="primary", use_container_width=True, key="btn_c6_unico"):
-                            total_d = total_r = 0
-                            linhas = []
-                            for _, r in df_a_inserir.iterrows():
-                                linhas.append({
-                                    "id": gerar_id(), "data": data_fat_fmt,
-                                    "descricao": r["_desc"], "categoria": r["_cat"],
-                                    "valor": round(float(r["_valor"]), 2),
-                                    "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
-                                    "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
-                                    "fonte": "C6 Bank", "criado_em": agora(),
-                                })
-                            if linhas:
-                                total_d = salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas)))
-
-                            if not df_devol.empty:
-                                linhas_r = []
-                                for _, r in df_devol.iterrows():
-                                    linhas_r.append({
-                                        "id": gerar_id(), "data": data_fat_fmt,
-                                        "descricao": r["_desc"], "categoria": "🔄 Reembolso",
-                                        "valor": round(float(r["_valor"]), 2),
-                                        "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
-                                        "observacao": f"Reembolso de {r['_data_orig']}",
-                                        "fonte": "C6 Bank", "criado_em": agora(),
-                                    })
-                                if linhas_r:
-                                    total_r = salvar_receitas_novas(pd.DataFrame(linhas_r))
-
-                            log_atividade("importou fatura C6 (único mês)", f"{total_d} novos + {len(df_ja_existe)} já existiam")
-                            mensagem_sucesso(f"✅ {total_d} novos lançamentos importados! ({len(df_ja_existe)} duplicatas ignoradas)")
-                            st.balloons()
-
-            except Exception as e:
-                mensagem_erro(f"Erro: {e}")
-                st.exception(e)
+                    log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d_geral} despesas")
+                    mensagem_sucesso(f"✅ {total_d_geral} despesas e {total_r_geral} reembolsos importados em {len(faturas_dados)} fatura(s)!")
+                    st.balloons()
 
     # ── Modo CSV unificado (múltiplos meses) ──────────────────
     else:

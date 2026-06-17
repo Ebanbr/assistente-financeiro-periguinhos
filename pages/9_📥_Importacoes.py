@@ -584,35 +584,18 @@ with aba2:
                     df_c6["_desc"]     = df_c6["Descrição"].str.strip()
                     df_c6["_cat"]      = df_c6["Categoria"].apply(lambda x: MAPA_CAT_C6.get(str(x).strip(), "📦 Outros"))
 
-                    # Dia de fechamento para calcular mês correto da fatura
-                    dia_fech_multi = st.number_input(
-                        "Dia de fechamento do cartão:", min_value=1, max_value=28, value=10,
-                        key="dia_fech_multi",
-                        help="Compras APÓS esse dia vão para a fatura do mês seguinte"
-                    )
+                    # Usa o mês/ano da data de compra diretamente — o CSV do C6 já vem com a data correta
+                    df_c6["_ano"] = df_c6["_data_ts"].dt.year
+                    df_c6["_mes"] = df_c6["_data_ts"].dt.month
 
-                    # Calcula mês de fatura real (compra após fechamento → próximo mês)
-                    def _mes_fat(dt, dia_fech):
-                        if pd.isna(dt): return (0, 0)
-                        if dt.day > dia_fech:
-                            prox = dt + relativedelta(months=1)
-                            return (prox.year, prox.month)
-                        return (dt.year, dt.month)
-
-                    df_c6["_fat_ano"] = df_c6["_data_ts"].apply(lambda d: _mes_fat(d, dia_fech_multi)[0])
-                    df_c6["_fat_mes"] = df_c6["_data_ts"].apply(lambda d: _mes_fat(d, dia_fech_multi)[1])
-                    # Aliases para compatibilidade com código abaixo
-                    df_c6["_ano"] = df_c6["_fat_ano"]
-                    df_c6["_mes"] = df_c6["_fat_mes"]
-
-                    # Detecta meses de fatura presentes
+                    # Detecta faturas presentes
                     meses_presentes = (
-                        df_c6[["_fat_ano","_fat_mes"]].dropna()
+                        df_c6[["_ano","_mes"]].dropna()
                         .drop_duplicates()
-                        .sort_values(["_fat_ano","_fat_mes"])
+                        .sort_values(["_ano","_mes"])
                         .values.tolist()
                     )
-                    meses_presentes = [(int(a), int(m)) for a, m in meses_presentes if a > 0]
+                    meses_presentes = [(int(a), int(m)) for a, m in meses_presentes]
 
                     st.markdown(f"**📅 {len(meses_presentes)} faturas detectadas:** " +
                                 ", ".join(f"{MESES_NOME[m-1]}/{a}" for a, m in meses_presentes))

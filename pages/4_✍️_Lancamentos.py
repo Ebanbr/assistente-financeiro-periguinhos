@@ -125,10 +125,10 @@ if "💸" in tipo:
             salvos = salvar_despesas_novas(pd.DataFrame(linhas))
             if salvos > 0:
                 if recorrente:
-                    log_atividade("lançou despesa recorrente", f"{descricao} · {formatar_moeda(valor)} · {salvos}x")
+                    log_atividade("lançou despesa recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} despesa(s) recorrente(s) de {formatar_moeda(valor)} registradas!")
                 else:
-                    log_atividade("lançou despesa", f"{descricao} · {formatar_moeda(valor)}")
+                    log_atividade("lançou despesa", f"{desc} · {formatar_moeda(valor)}")
                     mensagem_sucesso(f"Despesa de {formatar_moeda(valor)} registrada!")
                 st.rerun()
 
@@ -191,10 +191,10 @@ else:
             salvos = salvar_receitas_novas(pd.DataFrame(linhas))
             if salvos > 0:
                 if recorrente:
-                    log_atividade("lançou receita recorrente", f"{descricao} · {formatar_moeda(valor)} · {salvos}x")
+                    log_atividade("lançou receita recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} receita(s) recorrente(s) de {formatar_moeda(valor)} registradas!")
                 else:
-                    log_atividade("lançou receita", f"{descricao} · {formatar_moeda(valor)}")
+                    log_atividade("lançou receita", f"{desc} · {formatar_moeda(valor)}")
                     mensagem_sucesso(f"Receita de {formatar_moeda(valor)} registrada!")
                 st.rerun()
 

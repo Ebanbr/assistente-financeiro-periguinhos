@@ -163,19 +163,19 @@ with aba_dash:
 
         # Colunas resumidas (padrão)
         COLS_RESUMO = {
-            "data":       "Data",
-            "descricao":  "Descrição",
-            "categoria":  "Categoria",
-            "valor_fmt":  "Valor",
-            "status":     "Status",
-            "banco":      "Banco",
+            "data":            "Data",
+            "descricao":       "Descrição",
+            "categoria":       "Categoria",
+            "valor_fmt":       "Valor",
+            "status":          "Status",
+            "forma_pagamento": "Forma Pagamento",
+            "banco":           "Banco",
         }
         # Colunas extras (expandido)
         COLS_EXTRA = {
-            "forma_pagamento": "Forma Pagamento",
-            "fonte":           "Fonte",
-            "observacao":      "Observação",
-            "criado_em":       "Criado em",
+            "fonte":      "Fonte",
+            "observacao": "Observação",
+            "criado_em":  "Criado em",
         }
 
         cols_res = [c for c in COLS_RESUMO if c in df_sorted.columns]

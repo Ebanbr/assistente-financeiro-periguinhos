@@ -142,6 +142,9 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
             return
 
         df_export = df.copy()
+        # Migração: garante que coluna legada 'cartao' sai como 'banco' ao salvar
+        if "cartao" in df_export.columns and "banco" not in df_export.columns:
+            df_export = df_export.rename(columns={"cartao": "banco"})
         if "data_dt" in df_export.columns:
             df_export = df_export.drop(columns=["data_dt"])
 

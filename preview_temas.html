@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preview de Temas — Periguinhos Financeiro</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', sans-serif; background: #1a1a1a; color: white; padding: 20px; }
+h1 { text-align: center; margin-bottom: 10px; font-size: 1.4rem; color: #ccc; }
+.subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 0.9rem; }
+
+.temas { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+.tema { width: 420px; border-radius: 16px; overflow: hidden; border: 2px solid transparent; cursor: pointer; transition: all 0.3s; }
+.tema:hover { transform: scale(1.02); }
+.tema-label { text-align: center; padding: 10px; font-weight: 700; font-size: 1rem; }
+
+/* ═══════════════════════════════════════
+   TEMA A — Azul escuro + Ciano neon
+═══════════════════════════════════════ */
+.tema-a { border-color: #00D4FF; }
+.tema-a .label { color: #00D4FF; background: #0D1117; }
+.tema-a .shell { background: #0D1117; padding: 16px; }
+.tema-a .sidebar { background: #0D1B2A; border-right: 1px solid #00D4FF22; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.tema-a .sidebar-item { color: #8BAFC9; padding: 6px 10px; border-radius: 6px; font-size: 0.82rem; margin: 2px 0; }
+.tema-a .sidebar-item.active { background: #00D4FF22; color: #00D4FF; border-left: 3px solid #00D4FF; }
+.tema-a .card { background: #161B22; border: 1px solid #00D4FF33; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.tema-a .card-label { color: #8BAFC9; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+.tema-a .card-value { color: #00D4FF; font-size: 1.5rem; font-weight: 800; margin: 4px 0; }
+.tema-a .card-sub { color: #4a9eff; font-size: 0.75rem; }
+.tema-a .card.verde .card-value { color: #00FF87; }
+.tema-a .card.vermelho .card-value { color: #FF4D6D; }
+.tema-a .btn { background: linear-gradient(135deg, #00D4FF, #0095FF); color: #0D1117; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+.tema-a .grafico-bar { display: flex; align-items: flex-end; gap: 6px; height: 60px; margin-top: 8px; }
+.tema-a .bar { background: linear-gradient(180deg, #00D4FF, #0050AA); border-radius: 4px 4px 0 0; flex: 1; opacity: 0.8; }
+.tema-a .bar:hover { opacity: 1; }
+.tema-a .tabela { background: #161B22; border-radius: 8px; overflow: hidden; font-size: 0.78rem; }
+.tema-a .tabela-header { background: #0D1B2A; color: #00D4FF; padding: 8px 12px; display: flex; gap: 10px; }
+.tema-a .tabela-row { padding: 7px 12px; display: flex; gap: 10px; border-bottom: 1px solid #ffffff08; color: #8BAFC9; }
+.tema-a .tabela-row:hover { background: #00D4FF08; }
+.tema-a .tag { background: #00D4FF22; color: #00D4FF; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; }
+
+/* ═══════════════════════════════════════
+   TEMA B — Roxo/Índigo + Verde neon
+═══════════════════════════════════════ */
+.tema-b { border-color: #00FF87; }
+.tema-b .label { color: #00FF87; background: #0F0E17; }
+.tema-b .shell { background: #0F0E17; padding: 16px; }
+.tema-b .sidebar { background: #1A1A2E; border-right: 1px solid #00FF8722; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.tema-b .sidebar-item { color: #9B8EC4; padding: 6px 10px; border-radius: 6px; font-size: 0.82rem; margin: 2px 0; }
+.tema-b .sidebar-item.active { background: #00FF8722; color: #00FF87; border-left: 3px solid #00FF87; }
+.tema-b .card { background: #1A1A2E; border: 1px solid #7C3AED44; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.tema-b .card-label { color: #9B8EC4; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+.tema-b .card-value { color: #00FF87; font-size: 1.5rem; font-weight: 800; margin: 4px 0; }
+.tema-b .card-sub { color: #7C3AED; font-size: 0.75rem; }
+.tema-b .card.azul .card-value { color: #818CF8; }
+.tema-b .card.vermelho .card-value { color: #F87171; }
+.tema-b .btn { background: linear-gradient(135deg, #00FF87, #00C853); color: #0F0E17; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+.tema-b .grafico-bar { display: flex; align-items: flex-end; gap: 6px; height: 60px; margin-top: 8px; }
+.tema-b .bar { background: linear-gradient(180deg, #7C3AED, #4C1D95); border-radius: 4px 4px 0 0; flex: 1; opacity: 0.8; }
+.tema-b .bar:nth-child(odd) { background: linear-gradient(180deg, #00FF87, #00A85A); }
+.tema-b .tabela { background: #1A1A2E; border-radius: 8px; overflow: hidden; font-size: 0.78rem; }
+.tema-b .tabela-header { background: #0F0E17; color: #00FF87; padding: 8px 12px; display: flex; gap: 10px; }
+.tema-b .tabela-row { padding: 7px 12px; display: flex; gap: 10px; border-bottom: 1px solid #ffffff08; color: #9B8EC4; }
+.tema-b .tabela-row:hover { background: #00FF8708; }
+.tema-b .tag { background: #7C3AED33; color: #818CF8; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; }
+
+/* ═══════════════════════════════════════
+   TEMA C — Grafite + Dourado premium
+═══════════════════════════════════════ */
+.tema-c { border-color: #F59E0B; }
+.tema-c .label { color: #F59E0B; background: #111827; }
+.tema-c .shell { background: #111827; padding: 16px; }
+.tema-c .sidebar { background: #1F2937; border-right: 1px solid #F59E0B22; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+.tema-c .sidebar-item { color: #9CA3AF; padding: 6px 10px; border-radius: 6px; font-size: 0.82rem; margin: 2px 0; }
+.tema-c .sidebar-item.active { background: #F59E0B22; color: #F59E0B; border-left: 3px solid #F59E0B; }
+.tema-c .card { background: #1F2937; border: 1px solid #F59E0B33; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.tema-c .card-label { color: #9CA3AF; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+.tema-c .card-value { color: #F59E0B; font-size: 1.5rem; font-weight: 800; margin: 4px 0; }
+.tema-c .card-sub { color: #D97706; font-size: 0.75rem; }
+.tema-c .card.verde .card-value { color: #34D399; }
+.tema-c .card.vermelho .card-value { color: #F87171; }
+.tema-c .btn { background: linear-gradient(135deg, #F59E0B, #D97706); color: #111827; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+.tema-c .grafico-bar { display: flex; align-items: flex-end; gap: 6px; height: 60px; margin-top: 8px; }
+.tema-c .bar { background: linear-gradient(180deg, #F59E0B, #92400E); border-radius: 4px 4px 0 0; flex: 1; opacity: 0.8; }
+.tema-c .bar:nth-child(even) { background: linear-gradient(180deg, #34D399, #065F46); }
+.tema-c .tabela { background: #1F2937; border-radius: 8px; overflow: hidden; font-size: 0.78rem; }
+.tema-c .tabela-header { background: #111827; color: #F59E0B; padding: 8px 12px; display: flex; gap: 10px; }
+.tema-c .tabela-row { padding: 7px 12px; display: flex; gap: 10px; border-bottom: 1px solid #ffffff08; color: #9CA3AF; }
+.tema-c .tabela-row:hover { background: #F59E0B08; }
+.tema-c .tag { background: #F59E0B22; color: #F59E0B; padding: 2px 8px; border-radius: 20px; font-size: 0.7rem; }
+
+.cols { display: flex; gap: 8px; }
+.col { flex: 1; }
+</style>
+</head>
+<body>
+
+<h1>🎨 Escolha o Tema — Periguinhos Financeiro</h1>
+<p class="subtitle">Passe o mouse sobre cada tema para ver o efeito hover</p>
+
+<div class="temas">
+
+  <!-- ══ TEMA A ══ -->
+  <div class="tema tema-a">
+    <div class="tema-label label">A — Azul Escuro + Ciano Neon</div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="sidebar-item active">🏠 Dashboard</div>
+        <div class="sidebar-item">💸 Despesas</div>
+        <div class="sidebar-item">💰 Receitas</div>
+        <div class="sidebar-item">💳 Cartões</div>
+      </div>
+      <div class="cols">
+        <div class="col">
+          <div class="card">
+            <div class="card-label">💸 Total Despesas</div>
+            <div class="card-value">R$ 13.277</div>
+            <div class="card-sub">▲ 8% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card verde">
+            <div class="card-label">💰 Receitas</div>
+            <div class="card-value">R$ 18.450</div>
+            <div class="card-sub">▲ 12% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card vermelho">
+            <div class="card-label">💵 Saldo</div>
+            <div class="card-value">R$ 5.173</div>
+            <div class="card-sub">Maio 2026</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">📊 Despesas por Mês</div>
+        <div class="grafico-bar">
+          <div class="bar" style="height:40%"></div>
+          <div class="bar" style="height:65%"></div>
+          <div class="bar" style="height:50%"></div>
+          <div class="bar" style="height:80%"></div>
+          <div class="bar" style="height:55%"></div>
+          <div class="bar" style="height:100%"></div>
+        </div>
+      </div>
+      <div class="tabela">
+        <div class="tabela-header">
+          <span style="flex:2">Descrição ↕</span>
+          <span style="flex:1">Valor ↕</span>
+          <span style="flex:1">Fonte</span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">SHOPEE *MILATUTTI</span>
+          <span style="flex:1">R$ 64,29</span>
+          <span style="flex:1"><span class="tag">C6 Bank</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Condomínio</span>
+          <span style="flex:1">R$ 1.522,00</span>
+          <span style="flex:1"><span class="tag">Notion</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Cerveja no Murph</span>
+          <span style="flex:1">R$ 19,00</span>
+          <span style="flex:1"><span class="tag">Manual</span></span>
+        </div>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px">
+        <button class="btn">✅ Salvar</button>
+        <button class="btn" style="background: #0D1B2A; color: #00D4FF; border: 1px solid #00D4FF44">🔍 Filtrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TEMA B ══ -->
+  <div class="tema tema-b">
+    <div class="tema-label label">B — Roxo/Índigo + Verde Neon</div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="sidebar-item active">🏠 Dashboard</div>
+        <div class="sidebar-item">💸 Despesas</div>
+        <div class="sidebar-item">💰 Receitas</div>
+        <div class="sidebar-item">💳 Cartões</div>
+      </div>
+      <div class="cols">
+        <div class="col">
+          <div class="card">
+            <div class="card-label">💸 Total Despesas</div>
+            <div class="card-value">R$ 13.277</div>
+            <div class="card-sub">▲ 8% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card azul">
+            <div class="card-label">💰 Receitas</div>
+            <div class="card-value">R$ 18.450</div>
+            <div class="card-sub">▲ 12% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card vermelho">
+            <div class="card-label">💵 Saldo</div>
+            <div class="card-value">R$ 5.173</div>
+            <div class="card-sub">Maio 2026</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">📊 Despesas por Mês</div>
+        <div class="grafico-bar">
+          <div class="bar" style="height:40%"></div>
+          <div class="bar" style="height:65%"></div>
+          <div class="bar" style="height:50%"></div>
+          <div class="bar" style="height:80%"></div>
+          <div class="bar" style="height:55%"></div>
+          <div class="bar" style="height:100%"></div>
+        </div>
+      </div>
+      <div class="tabela">
+        <div class="tabela-header">
+          <span style="flex:2">Descrição ↕</span>
+          <span style="flex:1">Valor ↕</span>
+          <span style="flex:1">Fonte</span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">SHOPEE *MILATUTTI</span>
+          <span style="flex:1">R$ 64,29</span>
+          <span style="flex:1"><span class="tag">C6 Bank</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Condomínio</span>
+          <span style="flex:1">R$ 1.522,00</span>
+          <span style="flex:1"><span class="tag">Notion</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Cerveja no Murph</span>
+          <span style="flex:1">R$ 19,00</span>
+          <span style="flex:1"><span class="tag">Manual</span></span>
+        </div>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px">
+        <button class="btn">✅ Salvar</button>
+        <button class="btn" style="background: #1A1A2E; color: #00FF87; border: 1px solid #00FF8744">🔍 Filtrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ TEMA C ══ -->
+  <div class="tema tema-c">
+    <div class="tema-label label">C — Grafite + Dourado Premium</div>
+    <div class="shell">
+      <div class="sidebar">
+        <div class="sidebar-item active">🏠 Dashboard</div>
+        <div class="sidebar-item">💸 Despesas</div>
+        <div class="sidebar-item">💰 Receitas</div>
+        <div class="sidebar-item">💳 Cartões</div>
+      </div>
+      <div class="cols">
+        <div class="col">
+          <div class="card">
+            <div class="card-label">💸 Total Despesas</div>
+            <div class="card-value">R$ 13.277</div>
+            <div class="card-sub">▲ 8% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card verde">
+            <div class="card-label">💰 Receitas</div>
+            <div class="card-value">R$ 18.450</div>
+            <div class="card-sub">▲ 12% vs mês anterior</div>
+          </div>
+        </div>
+        <div class="col">
+          <div class="card vermelho">
+            <div class="card-label">💵 Saldo</div>
+            <div class="card-value">R$ 5.173</div>
+            <div class="card-sub">Maio 2026</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-label">📊 Despesas por Mês</div>
+        <div class="grafico-bar">
+          <div class="bar" style="height:40%"></div>
+          <div class="bar" style="height:65%"></div>
+          <div class="bar" style="height:50%"></div>
+          <div class="bar" style="height:80%"></div>
+          <div class="bar" style="height:55%"></div>
+          <div class="bar" style="height:100%"></div>
+        </div>
+      </div>
+      <div class="tabela">
+        <div class="tabela-header">
+          <span style="flex:2">Descrição ↕</span>
+          <span style="flex:1">Valor ↕</span>
+          <span style="flex:1">Fonte</span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">SHOPEE *MILATUTTI</span>
+          <span style="flex:1">R$ 64,29</span>
+          <span style="flex:1"><span class="tag">C6 Bank</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Condomínio</span>
+          <span style="flex:1">R$ 1.522,00</span>
+          <span style="flex:1"><span class="tag">Notion</span></span>
+        </div>
+        <div class="tabela-row">
+          <span style="flex:2">Cerveja no Murph</span>
+          <span style="flex:1">R$ 19,00</span>
+          <span style="flex:1"><span class="tag">Manual</span></span>
+        </div>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px">
+        <button class="btn">✅ Salvar</button>
+        <button class="btn" style="background: #1F2937; color: #F59E0B; border: 1px solid #F59E0B44">🔍 Filtrar</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

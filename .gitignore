@@ -1,0 +1,19 @@
+# Dados locais (nunca subir pro GitHub)
+data/
+*.parquet
+*.csv
+
+# Secrets (nunca subir!)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+streamlit
+pandas
+plotly
+pyarrow
+python-dateutil
+gspread
+google-auth

@@ -73,10 +73,13 @@ if "💸" in tipo:
 
     with col4:
         if forma in cartoes:
-            cartao = forma
-            st.info("💳 Compra no cartão — registrada como **Pago** (gasto realizado).")
+            banco = forma
+            st.caption("✅ Banco definido automaticamente pelo cartão.")
         else:
-            cartao = ""
+            from utils import ler_csv as _lc
+            _df_bancos = _lc("bancos")
+            _bancos_lista = _df_bancos["nome"].tolist() if not _df_bancos.empty and "nome" in _df_bancos.columns else ["Banco do Brasil","Nubank","Itaú","Bradesco","C6 BRU","C6 PRI"]
+            banco = st.selectbox("Banco:", _bancos_lista)
 
     # Cartão de crédito = gasto já realizado → Pago automaticamente
     # Boleto/outros → padrão A Pagar
@@ -116,7 +119,7 @@ if "💸" in tipo:
                     "categoria":       cat.strip(),
                     "valor":           round(valor, 2),
                     "forma_pagamento": forma,
-                    "cartao":          cartao,
+                    "banco":           banco,
                     "status":          status,
                     "observacao":      obs + parcela_obs,
                     "fonte":           "Manual",

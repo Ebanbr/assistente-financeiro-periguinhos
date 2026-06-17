@@ -272,7 +272,7 @@ with aba1:
                                 "categoria":       limpar_categoria(r["_prop"]),
                                 "valor":           round(float(r["_val_desp"]), 2),
                                 "forma_pagamento": r["_banco"] or "Outros",
-                                "cartao":          "",
+                                "banco":           "",
                                 "status":          "Pago" if r["_foi_pago"] else "A Pagar",
                                 "observacao":      "",
                                 "fonte":           "Notion",
@@ -394,7 +394,7 @@ with aba2:
             cartao_lower = cartao_sel.strip().lower()
             bate_cartao = (
                 df_atual["forma_pagamento"].astype(str).str.strip().str.lower().eq(cartao_lower) |
-                df_atual["cartao"].astype(str).str.strip().str.lower().eq(cartao_lower)
+                df_atual["banco"].astype(str).str.strip().str.lower().eq(cartao_lower) if "banco" in df_atual.columns else pd.Series([False]*len(df_atual))
             )
             serao_removidos = df_atual[mesmo_mes & bate_cartao & df_atual["fonte"].isin(["Notion","Manual"])]
             if not serao_removidos.empty:
@@ -484,7 +484,7 @@ with aba2:
                         dt_col = pd.to_datetime(df_historico["data"], errors="coerce")
                         mask_cartao = (
                             df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) |
-                            df_historico.get("cartao", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
+                            df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
                         )
                         df_existente_cartao = df_historico[mask_cartao].copy()
 
@@ -528,7 +528,7 @@ with aba2:
                                     "id": gerar_id(), "data": data_fat_fmt,
                                     "descricao": r["_desc"], "categoria": r["_cat"],
                                     "valor": round(float(r["_valor"]), 2),
-                                    "forma_pagamento": "💳 Crédito", "cartao": cartao_sel,
+                                    "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
                                     "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
                                     "fonte": "C6 Bank", "criado_em": agora(),
                                 })
@@ -628,7 +628,7 @@ with aba2:
                             mesmo_mes = (dt_col.dt.month == mes_f) & (dt_col.dt.year == ano_f)
                             bate_cartao = (
                                 df_atual["forma_pagamento"].astype(str).str.strip().str.lower().eq(cartao_lower) |
-                                df_atual["cartao"].astype(str).str.strip().str.lower().eq(cartao_lower)
+                                df_atual["banco"].astype(str).str.strip().str.lower().eq(cartao_lower) if "banco" in df_atual.columns else pd.Series([False]*len(df_atual))
                             )
                             total_serao_removidos += int((mesmo_mes & bate_cartao & df_atual["fonte"].isin(["Notion","Manual"])).sum())
 
@@ -656,7 +656,7 @@ with aba2:
                                         "id": gerar_id(), "data": data_fat_fmt,
                                         "descricao": r["_desc"], "categoria": r["_cat"],
                                         "valor": round(float(r["_val"]), 2),
-                                        "forma_pagamento": "💳 Crédito", "cartao": cartao_sel,
+                                        "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
                                         "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
                                         "fonte": "C6 Bank", "criado_em": agora(),
                                     })
@@ -702,7 +702,7 @@ with aba3:
         ex_d = pd.DataFrame([{
             "data": "2025-05-15", "descricao": "Supermercado",
             "categoria": "🍽️ Alimentação", "valor": 250.00,
-            "forma_pagamento": "💳 Débito", "cartao": "", "status": "Pago", "observacao": ""
+            "forma_pagamento": "💳 Débito", "banco": "", "status": "Pago", "observacao": ""
         }])
         st.download_button("⬇️ Baixar", data=ex_d.to_csv(index=False).encode("utf-8-sig"),
                            file_name="template_despesas.csv", mime="text/csv", use_container_width=True)

@@ -159,13 +159,13 @@ with aba_dash:
     if not df_f.empty:
         cols = ["data","descricao","categoria","valor","status"]
         if "fonte" in df_f.columns: cols.append("fonte")
-        if "cartao" in df_f.columns: cols.append("cartao")
+        if "banco" in df_f.columns: cols.append("banco")
         df_exib = df_f.sort_values("data_dt", ascending=False)[cols].copy()
         df_exib["data"]  = pd.to_datetime(df_exib["data"]).dt.strftime("%d/%m/%Y")
         df_exib["valor"] = df_exib["valor"].apply(formatar_moeda)
         nomes_col = ["Data","Descrição","Categoria","Valor","Status"]
         if "fonte" in cols:  nomes_col.append("Fonte")
-        if "cartao" in cols: nomes_col.append("Cartão")
+        if "banco" in cols: nomes_col.append("Banco")
         df_exib.columns = nomes_col
         st.dataframe(df_exib, use_container_width=True, hide_index=True, height=450)
 
@@ -222,7 +222,7 @@ with aba_fatura:
     # ── Filtra despesas do cartão selecionado ─────────────────
     mask_cartao = pd.Series([False] * len(df))
     if "cartao" in df.columns:
-        mask_cartao = df["cartao"].astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
+        mask_cartao = df["banco"].astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) if "banco" in df.columns else pd.Series([False]*len(df))
     if "forma_pagamento" in df.columns:
         mask_cartao = mask_cartao | df["forma_pagamento"].astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
 

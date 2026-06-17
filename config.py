@@ -93,7 +93,7 @@ CORES_GRAFICOS = [
 # ── Colunas dos CSVs ─────────────────────────────────────────
 COLUNAS_DESPESAS = [
     "id", "data", "descricao", "categoria", "valor",
-    "forma_pagamento", "cartao", "status", "observacao", "fonte", "criado_em"
+    "forma_pagamento", "banco", "status", "observacao", "fonte", "criado_em"
 ]
 
 COLUNAS_RECEITAS = [

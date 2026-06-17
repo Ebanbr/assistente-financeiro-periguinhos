@@ -84,6 +84,29 @@ def _ler_gsheet(tabela: str) -> pd.DataFrame:
         df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)].reset_index(drop=True)
         if df.empty:
             return pd.DataFrame()
+        # Migração: renomeia coluna legada 'cartao' → 'banco'
+        if "cartao" in df.columns and "banco" not in df.columns:
+            df = df.rename(columns={"cartao": "banco"})
+
+        # Migração: popula 'banco' a partir da descrição para registros Notion
+        if "banco" in df.columns and "descricao" in df.columns:
+            _BANCO_DE_DESC = {
+                "cartão c6 bru": "C6 BRU", "cartao c6 bru": "C6 BRU",
+                "cartão c6 pri": "C6 PRI", "cartao c6 pri": "C6 PRI",
+                "cartão nu pri":  "Nubank",  "cartao nu pri":  "Nubank",
+                "cartão nu bru":  "Nubank",  "cartao nu bru":  "Nubank",
+                "cartão nubank":  "Nubank",  "cartao nubank":  "Nubank",
+            }
+            mask_vazio = df["banco"].astype(str).str.strip().isin(["", "nan", "None"])
+            if mask_vazio.any():
+                def _inferir_banco(desc):
+                    d = str(desc).strip().lower()
+                    for k, v in _BANCO_DE_DESC.items():
+                        if k in d:
+                            return v
+                    return ""
+                df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco)
+
         if "data" in df.columns:
             df["data_dt"] = pd.to_datetime(df["data"], format="%Y-%m-%d", errors="coerce")
         if "valor" in df.columns:
@@ -268,6 +291,27 @@ def ler_csv(arquivo) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         df = pd.read_parquet(arquivo_parquet)
+        # Migração: renomeia coluna legada 'cartao' → 'banco'
+        if "cartao" in df.columns and "banco" not in df.columns:
+            df = df.rename(columns={"cartao": "banco"})
+        # Migração: popula 'banco' a partir da descrição para registros Notion
+        if "banco" in df.columns and "descricao" in df.columns:
+            _BANCO_DE_DESC = {
+                "cartão c6 bru": "C6 BRU", "cartao c6 bru": "C6 BRU",
+                "cartão c6 pri": "C6 PRI", "cartao c6 pri": "C6 PRI",
+                "cartão nu pri":  "Nubank",  "cartao nu pri":  "Nubank",
+                "cartão nu bru":  "Nubank",  "cartao nu bru":  "Nubank",
+                "cartão nubank":  "Nubank",  "cartao nubank":  "Nubank",
+            }
+            mask_vazio = df["banco"].astype(str).str.strip().isin(["", "nan", "None"])
+            if mask_vazio.any():
+                def _inferir_banco_p(desc):
+                    d = str(desc).strip().lower()
+                    for k, v in _BANCO_DE_DESC.items():
+                        if k in d:
+                            return v
+                    return ""
+                df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco_p)
         if not df.empty and "data" in df.columns:
             df["data_dt"] = pd.to_datetime(df["data"], format="%Y-%m-%d", errors="coerce")
         return df
@@ -356,7 +400,7 @@ def remover_por_fonte(tabela: str, fontes: list, mes: int = None, ano: int = Non
     if cartao:
         cartao_lower = cartao.strip().lower()
         col_fp = df["forma_pagamento"].astype(str).str.strip().str.lower() if "forma_pagamento" in df.columns else pd.Series([""] * len(df))
-        col_c  = df["cartao"].astype(str).str.strip().str.lower() if "cartao" in df.columns else pd.Series([""] * len(df))
+        col_c  = df["banco"].astype(str).str.strip().str.lower() if "banco" in df.columns else pd.Series([""] * len(df))
         mask = mask & (col_fp.eq(cartao_lower) | col_c.eq(cartao_lower))
 
     n = int(mask.sum())

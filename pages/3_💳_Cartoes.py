@@ -60,14 +60,14 @@ with tab2:
         if "data_dt" not in df_desp.columns:
             df_desp["data_dt"] = pd.to_datetime(df_desp["data"], errors="coerce")
 
-        df_desp = df_desp[df_desp["cartao"].astype(str).str.strip().ne("")].copy()
+        df_desp = df_desp[df_desp["banco"].astype(str).str.strip().ne("")].copy()
 
         if df_desp.empty:
             st.info("Nenhuma despesa de cartão. Importe uma fatura na página Importações.")
         else:
             col_f1, col_f2, col_f3 = st.columns(3)
             with col_f1:
-                cartao_f = st.selectbox("Cartão:", ["Todos"] + sorted(df_desp["cartao"].dropna().unique().tolist()), key="cart_f")
+                cartao_f = st.selectbox("Cartão:", ["Todos"] + sorted(df_desp["banco"].dropna().unique().tolist()), key="cart_f")
             with col_f2:
                 mes_f = st.selectbox("Mês:", [0]+list(range(1,13)), index=0,
                                      format_func=lambda m: "Todos" if m==0 else MESES_PT[m-1], key="mes_fc")
@@ -75,7 +75,7 @@ with tab2:
                 ano_f = st.selectbox("Ano:", ["Todos"]+list(range(2023, date.today().year+2)), key="ano_fc")
 
             df_f = df_desp.copy()
-            if cartao_f != "Todos": df_f = df_f[df_f["cartao"] == cartao_f]
+            if cartao_f != "Todos": df_f = df_f[df_f["banco"] == cartao_f]
             if mes_f > 0:           df_f = df_f[df_f["data_dt"].dt.month == mes_f]
             if ano_f != "Todos":    df_f = df_f[df_f["data_dt"].dt.year == int(ano_f)]
 
@@ -88,9 +88,10 @@ with tab2:
             st.divider()
 
             if not df_f.empty:
-                df_exib = df_f[["data","descricao","categoria","valor","cartao"]].copy()
+                df_exib = df_f[["data","descricao","categoria","valor","banco"]].copy()
                 df_exib["data"]  = pd.to_datetime(df_exib["data"]).dt.strftime("%d/%m/%Y")
                 df_exib["valor"] = df_exib["valor"].apply(formatar_moeda)
                 df_exib.columns  = ["Data","Descrição","Categoria","Valor","Cartão"]
                 st.dataframe(df_exib, use_container_width=True, hide_index=True, height=450)
+
 

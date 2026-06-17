@@ -138,13 +138,38 @@ st.divider()
 # ── Tabela completa ───────────────────────────────────────────
 st.markdown("### Todas as Receitas")
 if not df_f.empty:
-    cols = ["data","descricao","categoria","valor","status"]
-    if "fonte" in df_f.columns: cols.append("fonte")
-    df_exib = df_f.sort_values("data_dt", ascending=False)[cols].copy()
-    df_exib["data"]  = pd.to_datetime(df_exib["data"]).dt.strftime("%d/%m/%Y")
-    df_exib["valor"] = df_exib["valor"].apply(formatar_moeda)
-    nomes_col = ["Data","Descrição","Categoria","Valor","Status"]
-    if "fonte" in cols: nomes_col.append("Fonte")
-    df_exib.columns = nomes_col
+    df_sorted = df_f.sort_values("data_dt", ascending=False).copy()
+    df_sorted["data"]      = pd.to_datetime(df_sorted["data"]).dt.strftime("%d/%m/%Y")
+    df_sorted["valor_fmt"] = df_sorted["valor"].apply(formatar_moeda)
+
+    COLS_RESUMO = {
+        "data":              "Data",
+        "descricao":         "Descrição",
+        "categoria":         "Categoria",
+        "valor_fmt":         "Valor",
+        "status":            "Status",
+        "forma_recebimento": "Forma Recebimento",
+    }
+    COLS_EXTRA = {
+        "fonte":      "Fonte",
+        "observacao": "Observação",
+        "criado_em":  "Criado em",
+    }
+
+    cols_res = [c for c in COLS_RESUMO if c in df_sorted.columns]
+    cols_ext = [c for c in COLS_EXTRA  if c in df_sorted.columns]
+
+    ver_tudo = st.toggle("🔍 Ver todas as colunas", value=False, key="toggle_receitas")
+
+    if ver_tudo:
+        cols_show = cols_res + cols_ext
+        nomes = [COLS_RESUMO.get(c, COLS_EXTRA.get(c, c)) for c in cols_show]
+        df_exib = df_sorted[cols_show].copy()
+        df_exib.columns = nomes
+    else:
+        df_exib = df_sorted[cols_res].copy()
+        df_exib.columns = [COLS_RESUMO[c] for c in cols_res]
+
+    st.caption("💡 Clique no cabeçalho para ordenar" + (" · mostrando todas as colunas" if ver_tudo else ""))
     st.dataframe(df_exib, use_container_width=True, hide_index=True, height=400)
 

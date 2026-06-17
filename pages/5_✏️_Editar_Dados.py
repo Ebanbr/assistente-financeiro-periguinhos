@@ -72,8 +72,7 @@ with aba_editar:
         busca = st.text_input("🔍 Buscar descrição:", placeholder="Digite para filtrar...")
     with col_f4:
         cats_disponiveis = ["Todas"] + sorted(df["categoria"].dropna().unique().tolist()) if "categoria" in df.columns else ["Todas"]
-        cat_filtro = st.selectbox("🏷️ Filtrar por categoria:", cats_disponiveis,
-                                  index=cats_disponiveis.index("📦 Outros") if "📦 Outros" in cats_disponiveis else 0)
+        cat_filtro = st.selectbox("🏷️ Filtrar por categoria:", cats_disponiveis, index=0)
 
     df_filt = df.copy()
     if mes_f > 0:              df_filt = df_filt[df_filt["data_dt"].dt.month == mes_f]

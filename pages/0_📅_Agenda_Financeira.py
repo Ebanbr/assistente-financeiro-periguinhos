@@ -33,8 +33,8 @@ if st.button("🔄 Atualizar dados", help="Limpa o cache e recarrega do Google S
     st.rerun()
 STATUS_PENDENTES = {"A Pagar", "A Receber", "Agendado", "Pendente"}
 BANCOS_PADRAO = [
-    "Nubank", "Itaú", "Bradesco", "Santander",
-    "Caixa", "Banco do Brasil", "Inter", "Sicoob", "C6 PRI", "C6 BRU",
+    "Banco do Brasil", "Nubank", "Itaú", "Bradesco", "Santander",
+    "Caixa", "Inter", "Sicoob", "C6 PRI", "C6 BRU",
 ]
 
 # Carrega bancos cadastrados (se houver), senão usa o padrão

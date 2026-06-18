@@ -60,11 +60,24 @@ def _get_worksheet(tabela: str):
     except Exception:
         return sh.add_worksheet(title=tabela, rows=5000, cols=25)
 
+def _gsheet_com_retry(fn, *args, tentativas=5, **kwargs):
+    """Chama fn(*args, **kwargs) com retry exponencial em caso de 429."""
+    import time
+    for i in range(tentativas):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if "429" in str(e) and i < tentativas - 1:
+                espera = 2 ** i  # 1s, 2s, 4s, 8s...
+                time.sleep(espera)
+            else:
+                raise
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _ler_gsheet(tabela: str) -> pd.DataFrame:
     try:
         ws = _get_worksheet(tabela)
-        all_values = ws.get_all_values()
+        all_values = _gsheet_com_retry(ws.get_all_values)
         if not all_values or len(all_values) < 2:
             return pd.DataFrame()
         header = all_values[0]
@@ -158,10 +171,10 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
         header = df_export.columns.tolist()
         rows   = df_export.values.tolist()
         # update com resize=True sobrescreve tudo sem precisar de clear() separado
-        ws.update([header] + rows, value_input_option="USER_ENTERED")
+        _gsheet_com_retry(ws.update, [header] + rows, value_input_option="USER_ENTERED")
         # Limpa linhas extras que sobraram de versões anteriores maiores
         total_linhas = len(rows) + 1
-        ws.resize(rows=max(total_linhas, 1))
+        _gsheet_com_retry(ws.resize, rows=max(total_linhas, 1))
     except Exception as e:
         st.error(f"❌ Erro ao salvar Google Sheets ({tabela}): {e}")
 

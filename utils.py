@@ -121,7 +121,7 @@ def _ler_gsheet(tabela: str) -> pd.DataFrame:
                 df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco)
 
         if "data" in df.columns:
-            df["data_dt"] = pd.to_datetime(df["data"], format="%Y-%m-%d", errors="coerce")
+            df["data_dt"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
         if "valor" in df.columns:
             df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
 
@@ -329,7 +329,7 @@ def ler_csv(arquivo) -> pd.DataFrame:
                     return ""
                 df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco_p)
         if not df.empty and "data" in df.columns:
-            df["data_dt"] = pd.to_datetime(df["data"], format="%Y-%m-%d", errors="coerce")
+            df["data_dt"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
         return df
     except Exception as e:
         mensagem_erro(f"Erro ao ler {arquivo_parquet}: {e}")
@@ -356,10 +356,22 @@ def salvar_parquet(tabela: str, df: pd.DataFrame):
     except Exception as e:
         mensagem_erro(f"Erro ao salvar {tabela}: {e}")
 
-def salvar_despesas_novas(df: pd.DataFrame) -> int:
+def _salvar_novas(tabela: str, df: pd.DataFrame) -> int:
+    """Adiciona linhas novas sem sobrescrever existentes. Retorna -1 se a leitura falhar."""
     if df.empty:
         return 0
-    df_existente = ler_csv("despesas")
+    # Tenta ler dados existentes com retry embutido em _ler_gsheet
+    df_existente = ler_csv(tabela)
+    # Guarda em session_state se leu com sucesso, para detectar falha silenciosa
+    if _usar_gsheets():
+        chave_cache = f"_ultima_leitura_{tabela}"
+        if not df_existente.empty:
+            st.session_state[chave_cache] = len(df_existente)
+        elif st.session_state.get(chave_cache, 0) > 0:
+            # Leitura retornou vazio mas tínhamos dados antes → provável falha 429
+            st.error(f"⚠️ Leitura de '{tabela}' falhou — salvamento cancelado para não perder dados. Tente novamente.")
+            return -1
+
     if not df_existente.empty:
         chaves = set(zip(
             df_existente["data"].astype(str),
@@ -374,29 +386,14 @@ def salvar_despesas_novas(df: pd.DataFrame) -> int:
     else:
         df_final = df.copy()
         df_novo  = df
-    salvar_parquet("despesas", df_final)
+    salvar_parquet(tabela, df_final)
     return len(df_novo)
 
+def salvar_despesas_novas(df: pd.DataFrame) -> int:
+    return _salvar_novas("despesas", df)
+
 def salvar_receitas_novas(df: pd.DataFrame) -> int:
-    if df.empty:
-        return 0
-    df_existente = ler_csv("receitas")
-    if not df_existente.empty:
-        chaves = set(zip(
-            df_existente["data"].astype(str),
-            df_existente["descricao"].astype(str)
-        ))
-        df_novo = df[~df.apply(
-            lambda r: (str(r["data"]), str(r["descricao"])) in chaves, axis=1
-        )]
-        if df_novo.empty:
-            return 0
-        df_final = pd.concat([df_existente, df_novo], ignore_index=True)
-    else:
-        df_final = df.copy()
-        df_novo  = df
-    salvar_parquet("receitas", df_final)
-    return len(df_novo)
+    return _salvar_novas("receitas", df)
 
 def remover_por_fonte(tabela: str, fontes: list, mes: int = None, ano: int = None, cartao: str = None) -> int:
     """

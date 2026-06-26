@@ -683,50 +683,94 @@ with tab_cats:
     # ── Sub: Recategorizar ────────────────────────────────────
     with sub_recateg:
         st.markdown("### ⚡ Recategorizar em Massa")
-        st.info("Aplica todas as regras cadastradas sobre os dados existentes.")
 
-        df_reg3 = ler_csv(MAPEAMENTOS_FILE)
-        if df_reg3.empty:
-            st.warning("Cadastre regras na aba **Regras** primeiro.")
-        else:
-            col_p1, col_p2 = st.columns(2)
-            with col_p1: ap_d = st.checkbox("Despesas", value=True, key="apd")
-            with col_p2: ap_r = st.checkbox("Receitas",  value=True, key="apr")
-            if st.button("⚡ Aplicar Regras Agora", type="primary", use_container_width=True, key="btn_aplicar"):
-                total_alt = 0
-                for flag, arquivo_at in [(ap_d, "despesas"), (ap_r, "receitas")]:
-                    if not flag: continue
-                    df_at = ler_csv(arquivo_at)
-                    if df_at.empty: continue
-                    antes = df_at["categoria"].copy()
-                    df_at = aplicar_mapeamentos(df_at)
-                    alt   = int((df_at["categoria"] != antes).sum())
-                    salvar_parquet(arquivo_at, df_at)
-                    total_alt += alt
-                    st.caption(f"{'💸' if arquivo_at == 'despesas' else '💰'} {alt} recategorizados")
-                mensagem_sucesso(f"✅ {total_alt} lançamentos recategorizados!")
-                st.rerun()
+        # ── Filtro + tabela editável ──────────────────────────
+        col_rm1, col_rm2, col_rm3 = st.columns(3)
+        with col_rm1:
+            tipo_rm = st.radio("Tipo:", ["💸 Despesas", "💰 Receitas"], horizontal=True, key="tipo_rm")
+        with col_rm2:
+            df_rm_full = ler_csv("despesas" if "💸" in tipo_rm else "receitas")
+            cats_rm = ["Todas"] + sorted(df_rm_full["categoria"].dropna().unique().tolist()) if not df_rm_full.empty and "categoria" in df_rm_full.columns else ["Todas"]
+            cat_rm_filtro = st.selectbox("Filtrar categoria:", cats_rm, key="cat_rm_filtro")
+        with col_rm3:
+            busca_rm = st.text_input("🔍 Busca:", placeholder="Filtrar descrição...", key="busca_rm")
 
-        st.divider()
-        st.markdown("### 🔀 Migrar Categoria")
-        st.info("Move todos os lançamentos de uma categoria para outra.")
-        tipo_mig = st.radio("Tipo:", ["💸 Despesas", "💰 Receitas"], horizontal=True, key="tipo_mig")
-        df_mig   = ler_csv("despesas" if "💸" in tipo_mig else "receitas")
-        tab_mig  = "despesas" if "💸" in tipo_mig else "receitas"
+        if not df_rm_full.empty:
+            df_rm_full["valor"]  = pd.to_numeric(df_rm_full["valor"], errors="coerce").fillna(0)
+            df_rm_full["data_dt"]= pd.to_datetime(df_rm_full["data"], dayfirst=True, errors="coerce")
 
-        if not df_mig.empty and "categoria" in df_mig.columns:
-            cats_mig = sorted(df_mig["categoria"].dropna().unique().tolist())
-            col_de, col_para = st.columns(2)
-            with col_de:   cat_orig = st.selectbox("De:", cats_mig, key="cat_orig")
-            with col_para: cat_dest = st.selectbox("Para:", [c for c in cats_mig if c != cat_orig], key="cat_dest")
-            n_af = int((df_mig["categoria"] == cat_orig).sum())
-            if n_af:
-                st.caption(f"ℹ️ {n_af} lançamentos migrados")
-            if st.button("🔀 Migrar", type="primary", use_container_width=True, key="btn_migrar"):
-                df_mig.loc[df_mig["categoria"] == cat_orig, "categoria"] = cat_dest
-                salvar_parquet(tab_mig, df_mig)
-                mensagem_sucesso(f"✅ {n_af} lançamentos: \"{cat_orig}\" → \"{cat_dest}\"")
-                st.rerun()
+            df_rm_view = df_rm_full.copy()
+            if cat_rm_filtro != "Todas":
+                df_rm_view = df_rm_view[df_rm_view["categoria"] == cat_rm_filtro]
+            if busca_rm:
+                df_rm_view = df_rm_view[df_rm_view["descricao"].astype(str).str.contains(busca_rm, case=False, na=False)]
+            df_rm_view = df_rm_view.sort_values("data_dt", ascending=False)
+
+            st.caption(f"**{len(df_rm_view)} lançamentos** · Clique na coluna Categoria para alterar · Clique **Salvar** para confirmar.")
+
+            ALL_CATS_RM = sorted(set(listar_categorias("despesa") + listar_categorias("receita")))
+            cols_rm = ["data", "descricao", "categoria", "valor", "status", "id"]
+            df_rm_ed = df_rm_view.reindex(columns=cols_rm).copy()
+            df_rm_ed["data"]  = pd.to_datetime(df_rm_ed["data"], dayfirst=True, errors="coerce").dt.date
+            df_rm_ed["id"]    = df_rm_ed["id"].astype(str)
+            orig_ids_rm = set(df_rm_ed["id"].tolist())
+
+            edited_rm = st.data_editor(
+                df_rm_ed,
+                column_config={
+                    "data":      st.column_config.DateColumn("Data",      format="DD/MM/YYYY", disabled=True, width="small"),
+                    "descricao": st.column_config.TextColumn("Descrição", disabled=True, width="large"),
+                    "categoria": st.column_config.SelectboxColumn("🏷️ Categoria", options=ALL_CATS_RM, width="medium"),
+                    "valor":     st.column_config.NumberColumn("Valor",   format="R$ %.2f", disabled=True),
+                    "status":    st.column_config.TextColumn("Status",    disabled=True, width="small"),
+                    "id":        st.column_config.TextColumn("ID",        disabled=True, width="small"),
+                },
+                hide_index=True,
+                use_container_width=True,
+                num_rows="fixed",
+                height=400,
+                key="editor_recateg",
+            )
+
+            col_s1, col_s2 = st.columns(2)
+            with col_s1:
+                if st.button("💾 Salvar Categorias", type="primary", use_container_width=True, key="btn_salvar_rm"):
+                    tab_rm = "despesas" if "💸" in tipo_rm else "receitas"
+                    df_full_save = ler_csv(tab_rm)
+                    alterados = 0
+                    for _, row in edited_rm.iterrows():
+                        rid = str(row.get("id", ""))
+                        if not rid or rid not in orig_ids_rm: continue
+                        nova_cat = str(row.get("categoria", ""))
+                        mask_s = df_full_save["id"].astype(str) == rid
+                        if mask_s.any():
+                            cat_atual = str(df_full_save.loc[mask_s, "categoria"].iloc[0])
+                            if nova_cat != cat_atual:
+                                df_full_save.loc[mask_s, "categoria"] = nova_cat
+                                alterados += 1
+                    salvar_parquet(tab_rm, df_full_save)
+                    st.cache_data.clear()
+                    mensagem_sucesso(f"✅ {alterados} lançamento(s) recategorizados!")
+                    st.rerun()
+            with col_s2:
+                # Aplicar regras automáticas
+                if st.button("⚡ Aplicar Regras Automáticas", use_container_width=True, key="btn_aplicar_reg"):
+                    df_reg3 = ler_csv(MAPEAMENTOS_FILE)
+                    if df_reg3.empty:
+                        st.warning("Cadastre regras na aba **Regras** primeiro.")
+                    else:
+                        total_alt = 0
+                        for arquivo_at in ["despesas", "receitas"]:
+                            df_at = ler_csv(arquivo_at)
+                            if df_at.empty: continue
+                            antes = df_at["categoria"].copy()
+                            df_at = aplicar_mapeamentos(df_at)
+                            alt   = int((df_at["categoria"] != antes).sum())
+                            salvar_parquet(arquivo_at, df_at)
+                            total_alt += alt
+                        st.cache_data.clear()
+                        mensagem_sucesso(f"✅ {total_alt} lançamentos recategorizados pelas regras!")
+                        st.rerun()
 
         st.divider()
         st.markdown("### 🔍 Sem Categoria Definida")

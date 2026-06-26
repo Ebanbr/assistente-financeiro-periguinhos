@@ -60,7 +60,7 @@ with aba_editar:
         df["data_dt"] = pd.to_datetime(df["data"], errors="coerce")
 
     # ── Filtros ───────────────────────────────────────────────
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+    col_f1, col_f2, col_f3 = st.columns(3)
 
     with col_f1:
         mes_f = st.selectbox("Mês:", [0]+list(range(1,13)), index=0,
@@ -70,15 +70,21 @@ with aba_editar:
         ano_f = st.selectbox("Ano:", ["Todos"]+anos)
     with col_f3:
         busca = st.text_input("🔍 Buscar descrição:", placeholder="Digite para filtrar...")
+
+    col_f4, col_f5 = st.columns(2)
     with col_f4:
         cats_disponiveis = ["Todas"] + sorted(df["categoria"].dropna().unique().tolist()) if "categoria" in df.columns else ["Todas"]
-        cat_filtro = st.selectbox("🏷️ Filtrar por categoria:", cats_disponiveis, index=0)
+        cat_filtro = st.selectbox("🏷️ Categoria:", cats_disponiveis, index=0)
+    with col_f5:
+        status_opts_filt = ["Todos"] + sorted(df["status"].dropna().unique().tolist()) if "status" in df.columns else ["Todos"]
+        status_filtro = st.selectbox("📌 Status:", status_opts_filt, index=0)
 
     df_filt = df.copy()
-    if mes_f > 0:              df_filt = df_filt[df_filt["data_dt"].dt.month == mes_f]
-    if ano_f != "Todos":       df_filt = df_filt[df_filt["data_dt"].dt.year == int(ano_f)]
-    if busca:                  df_filt = df_filt[df_filt["descricao"].astype(str).str.contains(busca, case=False, na=False)]
-    if cat_filtro != "Todas":  df_filt = df_filt[df_filt["categoria"].astype(str) == cat_filtro]
+    if mes_f > 0:                    df_filt = df_filt[df_filt["data_dt"].dt.month == mes_f]
+    if ano_f != "Todos":             df_filt = df_filt[df_filt["data_dt"].dt.year == int(ano_f)]
+    if busca:                        df_filt = df_filt[df_filt["descricao"].astype(str).str.contains(busca, case=False, na=False)]
+    if cat_filtro != "Todas":        df_filt = df_filt[df_filt["categoria"].astype(str) == cat_filtro]
+    if status_filtro != "Todos":     df_filt = df_filt[df_filt["status"].astype(str) == status_filtro]
 
     if cat_filtro == "📦 Outros":
         st.warning(f"⚠️ {len(df_filt)} lançamentos sem categoria específica.")

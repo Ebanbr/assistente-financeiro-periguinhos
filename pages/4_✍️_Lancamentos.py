@@ -219,8 +219,7 @@ st.markdown("## 📋 Todos os Lançamentos")
 df_d = ler_csv(DESPESAS_FILE)
 df_r = ler_csv(RECEITAS_FILE)
 
-col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-
+col_f1, col_f2, col_f3 = st.columns(3)
 with col_f1:
     mes_f = st.selectbox("Mês:", [0] + list(range(1, 13)), index=0,
                          format_func=lambda m: "Todos" if m == 0 else MESES_PT[m-1])
@@ -228,17 +227,26 @@ with col_f2:
     ano_f = st.selectbox("Ano:", ["Todos"] + list(range(2023, date.today().year + 2)))
 with col_f3:
     tipo_f = st.selectbox("Tipo:", ["Todos", "💸 Despesas", "💰 Receitas"])
+
+col_f4, col_f5 = st.columns(2)
 with col_f4:
     status_f = st.selectbox("Status:", ["Todos", "Pago", "Recebida", "A Pagar", "A Receber", "Agendado", "Pendente"])
+with col_f5:
+    _fontes_d = df_d["fonte"].dropna().unique().tolist() if not df_d.empty and "fonte" in df_d.columns else []
+    _fontes_r = df_r["fonte"].dropna().unique().tolist() if not df_r.empty and "fonte" in df_r.columns else []
+    _fontes = sorted(set(_fontes_d + _fontes_r))
+    fonte_f = st.selectbox("Fonte:", ["Todas"] + _fontes)
 
 def filtrar(df):
     if df.empty or "data_dt" not in df.columns:
         return df
     df_f = df.copy()
-    if mes_f > 0:        df_f = df_f[df_f["data_dt"].dt.month == mes_f]
-    if ano_f != "Todos": df_f = df_f[df_f["data_dt"].dt.year == int(ano_f)]
+    if mes_f > 0:           df_f = df_f[df_f["data_dt"].dt.month == mes_f]
+    if ano_f != "Todos":    df_f = df_f[df_f["data_dt"].dt.year == int(ano_f)]
     if status_f != "Todos" and "status" in df_f.columns:
         df_f = df_f[df_f["status"] == status_f]
+    if fonte_f != "Todas" and "fonte" in df_f.columns:
+        df_f = df_f[df_f["fonte"] == fonte_f]
     return df_f
 
 if tipo_f == "Todos":

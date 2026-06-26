@@ -71,13 +71,16 @@ with aba_editar:
     with col_f3:
         busca = st.text_input("🔍 Buscar descrição:", placeholder="Digite para filtrar...")
 
-    col_f4, col_f5 = st.columns(2)
+    col_f4, col_f5, col_f6 = st.columns(3)
     with col_f4:
         cats_disponiveis = ["Todas"] + sorted(df["categoria"].dropna().unique().tolist()) if "categoria" in df.columns else ["Todas"]
         cat_filtro = st.selectbox("🏷️ Categoria:", cats_disponiveis, index=0)
     with col_f5:
         status_opts_filt = ["Todos"] + sorted(df["status"].dropna().unique().tolist()) if "status" in df.columns else ["Todos"]
         status_filtro = st.selectbox("📌 Status:", status_opts_filt, index=0)
+    with col_f6:
+        fontes_disp = ["Todas"] + sorted(df["fonte"].dropna().unique().tolist()) if "fonte" in df.columns else ["Todas"]
+        fonte_filtro = st.selectbox("📂 Fonte:", fontes_disp, index=0)
 
     df_filt = df.copy()
     if mes_f > 0:                    df_filt = df_filt[df_filt["data_dt"].dt.month == mes_f]
@@ -85,6 +88,7 @@ with aba_editar:
     if busca:                        df_filt = df_filt[df_filt["descricao"].astype(str).str.contains(busca, case=False, na=False)]
     if cat_filtro != "Todas":        df_filt = df_filt[df_filt["categoria"].astype(str) == cat_filtro]
     if status_filtro != "Todos":     df_filt = df_filt[df_filt["status"].astype(str) == status_filtro]
+    if fonte_filtro != "Todas":      df_filt = df_filt[df_filt["fonte"].astype(str) == fonte_filtro]
 
     if cat_filtro == "📦 Outros":
         st.warning(f"⚠️ {len(df_filt)} lançamentos sem categoria específica.")

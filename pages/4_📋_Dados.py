@@ -29,7 +29,7 @@ from utils import (
     formatar_moeda, gerar_id, agora,
     salvar_despesas_novas, salvar_receitas_novas,
     listar_cartoes_ativos, listar_categorias,
-    aplicar_mapeamentos, remover_por_fonte, invalidar_cache,
+    aplicar_mapeamentos, remover_por_fonte, invalidar_cache, adicionar_categoria,
 )
 from activity_log import registrar as log_atividade
 
@@ -346,6 +346,26 @@ with tab_lanc:
 
     st.caption("✏️ Clique em qualquer célula para editar · Use o ícone 🗑️ (hover na linha) para deletar · Clique em **Salvar** para confirmar.")
 
+    # ── Nova categoria inline ─────────────────────────────────
+    with st.expander("➕ Criar nova categoria"):
+        col_nc1, col_nc2, col_nc3 = st.columns([3, 2, 1])
+        with col_nc1:
+            nova_cat_nome = st.text_input("Nome da categoria:", placeholder="ex: 🐾 Pets", key="nova_cat_lanc")
+        with col_nc2:
+            nova_cat_tipo = st.radio("Tipo:", ["Despesa", "Receita", "Ambos"], horizontal=True, key="nova_cat_tipo_lanc")
+        with col_nc3:
+            st.write("")
+            if st.button("✅ Criar", key="btn_criar_cat_lanc", use_container_width=True):
+                if nova_cat_nome.strip():
+                    if nova_cat_tipo in ("Despesa", "Ambos"):
+                        adicionar_categoria("despesa", nova_cat_nome.strip())
+                    if nova_cat_tipo in ("Receita", "Ambos"):
+                        adicionar_categoria("receita", nova_cat_nome.strip())
+                    mensagem_sucesso(f"✅ Categoria \"{nova_cat_nome.strip()}\" criada!")
+                    st.rerun()
+                else:
+                    mensagem_erro("Digite um nome para a categoria.")
+
     # Prepara df para o data_editor
     ALL_CATS    = _ALL_CATS
     STATUS_OPTS = ["Pago", "Recebida", "A Pagar", "A Receber", "Agendado", "Pendente"]
@@ -472,6 +492,26 @@ with tab_cats:
     # ── Sub: Categorias ───────────────────────────────────────
     with sub_cats:
         st.markdown("### 🏷️ Gerenciar Categorias")
+
+        # Nova categoria
+        with st.expander("➕ Criar nova categoria", expanded=False):
+            col_nc1, col_nc2, col_nc3 = st.columns([3, 2, 1])
+            with col_nc1:
+                nova_cat_nome2 = st.text_input("Nome:", placeholder="ex: 🐾 Pets", key="nova_cat_cats")
+            with col_nc2:
+                nova_cat_tipo2 = st.radio("Tipo:", ["Despesa", "Receita", "Ambos"], horizontal=True, key="nova_cat_tipo_cats")
+            with col_nc3:
+                st.write("")
+                if st.button("✅ Criar", key="btn_criar_cat_cats", use_container_width=True):
+                    if nova_cat_nome2.strip():
+                        if nova_cat_tipo2 in ("Despesa", "Ambos"):
+                            adicionar_categoria("despesa", nova_cat_nome2.strip())
+                        if nova_cat_tipo2 in ("Receita", "Ambos"):
+                            adicionar_categoria("receita", nova_cat_nome2.strip())
+                        mensagem_sucesso(f"✅ Categoria \"{nova_cat_nome2.strip()}\" criada!")
+                        st.rerun()
+                    else:
+                        mensagem_erro("Digite um nome para a categoria.")
 
         df_d_cat = _DF_DESP
         df_r_cat = _DF_REC

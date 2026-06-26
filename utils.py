@@ -297,10 +297,26 @@ def invalidar_cache(tabela: str):
     st.session_state["_data_versions"][chave] = st.session_state["_data_versions"].get(chave, 0) + 1
 
 
+def adicionar_categoria(tipo: str, nome: str):
+    """Persiste uma nova categoria no config JSON."""
+    from config import CONFIG_FILE
+    cfg = ler_json(str(CONFIG_FILE))
+    chave = f"categorias_extras_{tipo}"
+    extras = cfg.get(chave, [])
+    nome = nome.strip()
+    if nome and nome not in extras:
+        extras.append(nome)
+        cfg[chave] = extras
+        salvar_json(str(CONFIG_FILE), cfg)
+
+
 def listar_categorias(tipo: str = "despesa") -> list:
-    """Retorna todas as categorias únicas usadas + as dos mapeamentos."""
-    from config import DESPESAS_FILE, RECEITAS_FILE, MAPEAMENTOS_FILE, CATEGORIAS_DESPESA, CATEGORIAS_RECEITA
+    """Retorna todas as categorias únicas usadas + as dos mapeamentos + extras do config."""
+    from config import DESPESAS_FILE, RECEITAS_FILE, MAPEAMENTOS_FILE, CATEGORIAS_DESPESA, CATEGORIAS_RECEITA, CONFIG_FILE
     cats = set(CATEGORIAS_DESPESA if tipo == "despesa" else CATEGORIAS_RECEITA)
+    # Categorias extras criadas pelo usuário
+    cfg = ler_json(str(CONFIG_FILE))
+    cats.update(cfg.get(f"categorias_extras_{tipo}", []))
     arquivo = DESPESAS_FILE if tipo == "despesa" else RECEITAS_FILE
     df = ler_csv(arquivo)
     if not df.empty and "categoria" in df.columns:

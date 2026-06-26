@@ -258,7 +258,11 @@ with aba_fatura:
         st.info(f"Nenhum lançamento encontrado para o cartão **{cartao_sel}**.")
         st.stop()
 
-    df_cartao["_dt"] = pd.to_datetime(df_cartao["data"], errors="coerce")
+    # Reusa data_dt (já parseada corretamente por ler_csv); fallback defensivo
+    if "data_dt" in df_cartao.columns:
+        df_cartao["_dt"] = df_cartao["data_dt"]
+    else:
+        df_cartao["_dt"] = pd.to_datetime(df_cartao["data"], errors="coerce")
 
     # ── Calcula mês de fatura de cada lançamento ──────────────
     def mes_fatura_de(dt, dia_fech):

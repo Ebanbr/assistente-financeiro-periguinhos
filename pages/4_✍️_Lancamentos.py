@@ -11,6 +11,8 @@ import pandas as pd
 from datetime import date
 from dateutil.relativedelta import relativedelta
 
+from rapidfuzz import process, fuzz
+
 from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT
 from utils import (
     configurar_pagina, cabecalho_pagina, inicializar_dados,
@@ -20,6 +22,19 @@ from utils import (
     listar_cartoes_ativos, listar_categorias,
 )
 from activity_log import registrar as log_atividade
+
+def _sugerir(texto, historico_df, col_desc="descricao", col_cat="categoria", limite=5, score_min=55):
+    """Retorna lista de (descricao, categoria) ordenada por similaridade."""
+    if not texto or len(texto) < 2 or historico_df.empty:
+        return []
+    descs = historico_df[col_desc].dropna().unique().tolist()
+    matches = process.extract(texto, descs, scorer=fuzz.partial_ratio, limit=limite, score_cutoff=score_min)
+    resultado = []
+    for desc, score, _ in matches:
+        cats = historico_df[historico_df[col_desc] == desc][col_cat].dropna()
+        cat  = cats.mode().iloc[0] if not cats.empty else ""
+        resultado.append((desc, cat, score))
+    return resultado
 
 configurar_pagina("Lançamentos", icone="✍️")
 inicializar_dados()
@@ -45,6 +60,10 @@ with col_data:
 
 st.markdown("---")
 
+# ── Histórico para autocomplete ───────────────────────────────
+_hist_desp = ler_csv(DESPESAS_FILE)
+_hist_rec  = ler_csv(RECEITAS_FILE)
+
 # ── DESPESA ──────────────────────────────────────────────────
 if "💸" in tipo:
     st.markdown("### 💸 Nova Despesa")
@@ -52,12 +71,27 @@ if "💸" in tipo:
     col1, col2 = st.columns(2)
 
     with col1:
-        desc  = st.text_input("Descrição:")
+        desc_input = st.text_input("Descrição:", key="desc_desp")
         valor = st.number_input("Valor (R$):", min_value=0.0, step=0.01)
+
+    # Fuzzy suggestions
+    sugestoes_d = _sugerir(desc_input, _hist_desp) if desc_input else []
+    cat_sugerida_d = ""
+    desc = desc_input
+
+    if sugestoes_d:
+        opcoes_sug = ["✏️ Usar como digitado"] + [f"{d}  ({score}%)" for d, _, score in sugestoes_d]
+        with col1:
+            escolha = st.selectbox("💡 Sugestões:", opcoes_sug, key="sug_desp")
+        if escolha != "✏️ Usar como digitado":
+            idx = opcoes_sug.index(escolha) - 1
+            desc, cat_sugerida_d, _ = sugestoes_d[idx]
+            st.caption(f"✅ Usando: **{desc}** · Categoria sugerida: **{cat_sugerida_d}**")
 
     with col2:
         cats_d = listar_categorias("despesa")
-        cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_d)
+        idx_cat_d = (cats_d.index(cat_sugerida_d) + 1) if cat_sugerida_d in cats_d else 0
+        cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_d, index=idx_cat_d)
         if cat_sel == "➕ Nova categoria...":
             cat = st.text_input("Nome da nova categoria:", placeholder="Ex: 🎮 Games")
         else:
@@ -147,12 +181,26 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
-        desc  = st.text_input("Descrição:")
+        desc_input = st.text_input("Descrição:", key="desc_rec")
         valor = st.number_input("Valor (R$):", min_value=0.0, step=0.01)
+
+    sugestoes_r = _sugerir(desc_input, _hist_rec) if desc_input else []
+    cat_sugerida_r = ""
+    desc = desc_input
+
+    if sugestoes_r:
+        opcoes_sug = ["✏️ Usar como digitado"] + [f"{d}  ({score}%)" for d, _, score in sugestoes_r]
+        with col1:
+            escolha = st.selectbox("💡 Sugestões:", opcoes_sug, key="sug_rec")
+        if escolha != "✏️ Usar como digitado":
+            idx = opcoes_sug.index(escolha) - 1
+            desc, cat_sugerida_r, _ = sugestoes_r[idx]
+            st.caption(f"✅ Usando: **{desc}** · Categoria sugerida: **{cat_sugerida_r}**")
 
     with col2:
         cats_r = listar_categorias("receita")
-        cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_r)
+        idx_cat_r = (cats_r.index(cat_sugerida_r) + 1) if cat_sugerida_r in cats_r else 0
+        cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_r, index=idx_cat_r)
         if cat_sel == "➕ Nova categoria...":
             cat = st.text_input("Nome da nova categoria:", placeholder="Ex: 💡 Consultoria")
         else:

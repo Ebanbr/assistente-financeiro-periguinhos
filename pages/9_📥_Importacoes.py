@@ -443,28 +443,50 @@ with aba2:
                 })
 
             if resumo_geral:
+                # Calcula provisórios que serão removidos por fatura
+                provisorios_por_fatura = {}
+                for (mes_f, ano_f) in faturas_dados:
+                    if not df_historico.empty and "fonte" in df_historico.columns:
+                        mask_prov = (
+                            (df_historico["fonte"].astype(str) == "Manual") &
+                            (df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower() == cartao_sel.strip().lower()) &
+                            (pd.to_datetime(df_historico["data"], dayfirst=True, errors="coerce").dt.month == mes_f) &
+                            (pd.to_datetime(df_historico["data"], dayfirst=True, errors="coerce").dt.year == ano_f)
+                        )
+                        provisorios_por_fatura[(mes_f, ano_f)] = df_historico[mask_prov]
+                    else:
+                        provisorios_por_fatura[(mes_f, ano_f)] = pd.DataFrame()
+
+                # Adiciona coluna de provisórios no resumo
+                for r in resumo_geral:
+                    mes_idx = MESES_NOME.index(r["Fatura"].split("/")[0]) + 1
+                    ano_idx = int(r["Fatura"].split("/")[1])
+                    n_prov = len(provisorios_por_fatura.get((mes_idx, ano_idx), pd.DataFrame()))
+                    r["Provisórios a remover"] = f"🗑️ {n_prov}" if n_prov > 0 else "—"
+
                 st.markdown("#### 📋 Resumo das faturas a importar")
                 st.dataframe(pd.DataFrame(resumo_geral), use_container_width=True, hide_index=True)
 
+                total_prov = sum(len(v) for v in provisorios_por_fatura.values())
+                if total_prov > 0:
+                    st.warning(f"🗑️ **{total_prov} lançamento(s) manual(is) provisório(s)** de **{cartao_sel}** serão removidos e substituídos pela fatura oficial.")
+
                 if st.button("✅ Confirmar e Importar Todas", type="primary", use_container_width=True, key="btn_c6_multi_unico"):
-                    total_d_geral = total_r_geral = 0
+                    total_d_geral = total_r_geral = total_prov_removed = 0
+                    df_desp_full = ler_csv(DESPESAS_FILE)
+
                     for (mes_fatura, ano_fatura), (df_desp, df_devol, nome_arq) in faturas_dados.items():
                         data_fat_fmt = f"{ano_fatura:04d}-{mes_fatura:02d}-01"
 
-                        # Fuzzy matching
-                        df_existente_cartao = pd.DataFrame()
-                        if not df_historico.empty:
-                            mask_c = (
-                                df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower()) |
-                                df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower().eq(cartao_sel.strip().lower())
-                            )
-                            df_existente_cartao = df_historico[mask_c].copy()
+                        # 1. Remove provisórios manuais desse cartão/mês
+                        df_prov = provisorios_por_fatura.get((mes_fatura, ano_fatura), pd.DataFrame())
+                        if not df_prov.empty and not df_desp_full.empty:
+                            ids_remover = set(df_prov["id"].astype(str))
+                            df_desp_full = df_desp_full[~df_desp_full["id"].astype(str).isin(ids_remover)]
+                            total_prov_removed += len(ids_remover)
 
-                        resultado = fuzzy_match_fatura(df_desp, df_existente_cartao, similaridade_min=75, janela_dias=5)
-                        df_a_inserir = df_desp.loc[list(resultado["novos"])] if resultado["novos"] else pd.DataFrame()
-                        n_dup = len(resultado["duplicatas"])
-
-                        if not df_a_inserir.empty:
+                        # 2. Adiciona itens da fatura (sem fuzzy — provisórios já foram removidos)
+                        if not df_desp.empty:
                             linhas = [{
                                 "id": gerar_id(), "data": data_fat_fmt,
                                 "descricao": r["_desc"], "categoria": r["_cat"],
@@ -472,8 +494,10 @@ with aba2:
                                 "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
                                 "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
                                 "fonte": "C6 Bank", "criado_em": agora(),
-                            } for _, r in df_a_inserir.iterrows()]
-                            total_d_geral += salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas)))
+                            } for _, r in df_desp.iterrows()]
+                            df_novos = aplicar_mapeamentos(pd.DataFrame(linhas))
+                            df_desp_full = pd.concat([df_desp_full, df_novos], ignore_index=True)
+                            total_d_geral += len(df_novos)
 
                         if not df_devol.empty:
                             linhas_r = [{
@@ -486,10 +510,17 @@ with aba2:
                             } for _, r in df_devol.iterrows()]
                             total_r_geral += salvar_receitas_novas(pd.DataFrame(linhas_r))
 
-                        st.info(f"✅ {MESES_NOME[mes_fatura-1]}/{ano_fatura}: {len(df_a_inserir)} novos, {n_dup} já existiam")
+                    # Salva tudo de uma vez
+                    if not df_desp_full.empty:
+                        salvar_parquet("despesas", df_desp_full)
+                        st.cache_data.clear()
 
-                    log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d_geral} despesas")
-                    mensagem_sucesso(f"✅ {total_d_geral} despesas e {total_r_geral} reembolsos importados em {len(faturas_dados)} fatura(s)!")
+                    for (mes_fatura, ano_fatura) in faturas_dados:
+                        n_prov = len(provisorios_por_fatura.get((mes_fatura, ano_fatura), pd.DataFrame()))
+                        st.info(f"✅ {MESES_NOME[mes_fatura-1]}/{ano_fatura}: {total_d_geral} da fatura · 🗑️ {n_prov} provisórios removidos")
+
+                    log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d_geral} despesas · {total_prov_removed} provisórios removidos")
+                    mensagem_sucesso(f"✅ {total_d_geral} despesas importadas, {total_prov_removed} provisórios substituídos!")
                     st.balloons()
 
     # ── Modo CSV unificado (múltiplos meses) ──────────────────

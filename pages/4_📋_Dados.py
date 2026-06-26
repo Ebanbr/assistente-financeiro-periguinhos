@@ -973,7 +973,9 @@ with tab_import:
                         if "Data de PG" in df_raw.columns:
                             df_dbg["Data PG (raw)"] = df_raw["Data de PG"].astype(str)
                         df_dbg["Data interpretada"] = df_dbg["_data"].apply(to_br)
-                        df_dbg["Mês"] = pd.to_datetime(df_dbg["_data"], errors="coerce").dt.strftime("%b/%Y")
+                        _MESES_ABREV = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
+                        _dt_dbg = pd.to_datetime(df_dbg["_data"], errors="coerce")
+                        df_dbg["Mês"] = _dt_dbg.apply(lambda d: f"{_MESES_ABREV[d.month-1]}/{d.year}" if pd.notna(d) else "")
                         df_dbg = df_dbg.rename(columns={"_nome": "Nome", "_data": "ISO salvo"})
                         st.dataframe(df_dbg, use_container_width=True, hide_index=True)
                         st.caption("'ISO salvo' é o que vai entrar no banco. 'Data interpretada' é como vai aparecer. Se alguma data estiver errada, não confirme a importação.")

@@ -74,7 +74,7 @@ def _gsheet_com_retry(fn, *args, tentativas=5, **kwargs):
                 raise
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _ler_gsheet(tabela: str) -> pd.DataFrame:
+def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
     try:
         ws = _get_worksheet(tabela)
         all_values = _gsheet_com_retry(ws.get_all_values)
@@ -280,6 +280,23 @@ def aplicar_mapeamentos(df: pd.DataFrame) -> pd.DataFrame:
         df.loc[mask, "categoria"] = categoria
     return df
 
+def invalidar_cache(tabela: str):
+    """Invalida o cache só da tabela modificada, sem derrubar as demais."""
+    from config import DESPESAS_FILE, RECEITAS_FILE, MAPEAMENTOS_FILE, CARTOES_FILE
+    _ALIAS = {
+        DESPESAS_FILE:    "despesas",
+        RECEITAS_FILE:    "receitas",
+        MAPEAMENTOS_FILE: "mapeamentos",
+        CARTOES_FILE:     "cartoes",
+        "despesas": "despesas", "receitas": "receitas",
+        "mapeamentos": "mapeamentos", "cartoes": "cartoes",
+    }
+    chave = _ALIAS.get(tabela, str(tabela))
+    if "_data_versions" not in st.session_state:
+        st.session_state["_data_versions"] = {}
+    st.session_state["_data_versions"][chave] = st.session_state["_data_versions"].get(chave, 0) + 1
+
+
 def listar_categorias(tipo: str = "despesa") -> list:
     """Retorna todas as categorias únicas usadas + as dos mapeamentos."""
     from config import DESPESAS_FILE, RECEITAS_FILE, MAPEAMENTOS_FILE, CATEGORIAS_DESPESA, CATEGORIAS_RECEITA
@@ -299,7 +316,8 @@ def ler_csv(arquivo) -> pd.DataFrame:
         return pd.DataFrame()
 
     if _usar_gsheets():
-        return _ler_gsheet(tabela)
+        versoes = st.session_state.get("_data_versions", {})
+        return _ler_gsheet(tabela, _v=versoes.get(tabela, 0))
 
     # ── Fallback local (Parquet) ──────────────────────────────
     arquivo_parquet = DATA_DIR / f"{tabela}.parquet"

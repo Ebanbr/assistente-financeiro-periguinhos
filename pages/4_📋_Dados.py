@@ -29,7 +29,7 @@ from utils import (
     formatar_moeda, gerar_id, agora,
     salvar_despesas_novas, salvar_receitas_novas,
     listar_cartoes_ativos, listar_categorias,
-    aplicar_mapeamentos, remover_por_fonte,
+    aplicar_mapeamentos, remover_por_fonte, invalidar_cache,
 )
 from activity_log import registrar as log_atividade
 
@@ -209,7 +209,7 @@ with tab_lanc:
                         })
                     salvos = salvar_despesas_novas(pd.DataFrame(linhas))
                     if salvos > 0:
-                        st.cache_data.clear()
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
                         _limpar_form()
                         log_atividade("lançou despesa", f"{desc_form} · {formatar_moeda(valor_form)}" + (f" · {salvos}x" if recorrente else ""))
                         mensagem_sucesso(f"{'Despesa' if not recorrente else f'{salvos} despesas'} registrada(s)!")
@@ -272,7 +272,7 @@ with tab_lanc:
                         })
                     salvos = salvar_receitas_novas(pd.DataFrame(linhas))
                     if salvos > 0:
-                        st.cache_data.clear()
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
                         _limpar_form()
                         log_atividade("lançou receita", f"{desc_form} · {formatar_moeda(valor_form)}")
                         mensagem_sucesso(f"{'Receita' if not recorrente else f'{salvos} receitas'} registrada(s)!")
@@ -400,7 +400,7 @@ with tab_lanc:
             df_r_s = df_r_s[~df_r_s["id"].astype(str).isin(ids_del)]
             salvar_parquet("despesas", df_d_s)
             salvar_parquet("receitas", df_r_s)
-            st.cache_data.clear()
+            invalidar_cache("despesas"); invalidar_cache("receitas")
             log_atividade("deletou lançamentos", f"{len(ids_del)} via tabela")
             mensagem_sucesso(f"✅ {len(ids_del)} lançamento(s) excluído(s)!")
             st.rerun()
@@ -446,7 +446,7 @@ with tab_lanc:
 
             salvar_parquet("despesas", df_d_save)
             salvar_parquet("receitas", df_r_save)
-            st.cache_data.clear()
+            invalidar_cache("despesas"); invalidar_cache("receitas")
 
             msg = []
             if deleted_ids: msg.append(f"{len(deleted_ids)} deletado(s)")
@@ -545,7 +545,7 @@ with tab_cats:
                                         df_full.loc[mask_s, "valor"]     = round(float(row.get("valor", 0) or 0), 2)
                                         df_full.loc[mask_s, "status"]    = str(row.get("status", ""))
                                 salvar_parquet(arquivo_cat, df_full)
-                                st.cache_data.clear()
+                                invalidar_cache("despesas"); invalidar_cache("receitas")
                                 mensagem_sucesso("✅ Alterações salvas!")
                                 st.rerun()
 
@@ -576,7 +576,7 @@ with tab_cats:
                                     mask_rc = df_full["descricao"].isin(descs_sel) & (df_full["categoria"] == cat)
                                     df_full.loc[mask_rc, "categoria"] = nova_cat_rc
                                     salvar_parquet(arquivo_cat, df_full)
-                                    st.cache_data.clear()
+                                    invalidar_cache("despesas"); invalidar_cache("receitas")
                                     mensagem_sucesso(f"✅ {int(mask_rc.sum())} lançamentos → \"{nova_cat_rc}\"")
                                     st.rerun()
                         else:
@@ -719,7 +719,7 @@ with tab_cats:
                     mask_qr = df_qr_save["descricao"] == desc_qr
                     df_qr_save.loc[mask_qr, "categoria"] = nova_cat_qr
                     salvar_parquet(tab_qr, df_qr_save)
-                    st.cache_data.clear()
+                    invalidar_cache("despesas"); invalidar_cache("receitas")
                     mensagem_sucesso(f"✅ {int(mask_qr.sum())} lançamentos \"{desc_qr}\" → \"{nova_cat_qr}\"")
                     st.rerun()
 
@@ -790,7 +790,7 @@ with tab_cats:
                                 df_full_save.loc[mask_s, "categoria"] = nova_cat
                                 alterados += 1
                     salvar_parquet(tab_rm, df_full_save)
-                    st.cache_data.clear()
+                    invalidar_cache("despesas"); invalidar_cache("receitas")
                     mensagem_sucesso(f"✅ {alterados} lançamento(s) recategorizados!")
                     st.rerun()
             with col_s2:
@@ -809,7 +809,7 @@ with tab_cats:
                             alt   = int((df_at["categoria"] != antes).sum())
                             salvar_parquet(arquivo_at, df_at)
                             total_alt += alt
-                        st.cache_data.clear()
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
                         mensagem_sucesso(f"✅ {total_alt} lançamentos recategorizados pelas regras!")
                         st.rerun()
 
@@ -1129,7 +1129,7 @@ with tab_import:
 
                         if not df_desp_full.empty:
                             salvar_parquet("despesas", df_desp_full)
-                            st.cache_data.clear()
+                            invalidar_cache("despesas"); invalidar_cache("receitas")
 
                         log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d} despesas · {total_rem} provisórios removidos")
                         mensagem_sucesso(f"✅ {total_d} despesas · {total_rem} provisórios substituídos!")
@@ -1260,7 +1260,7 @@ with tab_import:
                         n_d = remover_por_fonte("despesas", [fonte_nome])
                         n_r = remover_por_fonte("receitas",  [fonte_nome])
                         st.session_state[key_conf] = False
-                        st.cache_data.clear()
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
                         mensagem_sucesso(f"✅ {n_d} despesas e {n_r} receitas de {fonte_nome} removidas!")
                         st.rerun()
                 with c2:

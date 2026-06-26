@@ -82,7 +82,11 @@ def limpar_valor(texto):
 def to_iso(texto):
     if pd.isna(texto): return ""
     s = str(texto).strip()
-    for fmt in ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y"]:
+    # Remove horário se vier junto (ex: "2026-01-05 00:00:00")
+    s = s.split(" ")[0].split("T")[0]
+    for fmt in ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y",
+                "%B %d, %Y", "%b %d, %Y",   # "January 5, 2026" / "Jan 5, 2026"
+                "%Y/%m/%d"]:
         try: return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
         except: continue
     return s

@@ -167,11 +167,20 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
                     lambda x: f"{float(x):.2f}" if str(x).strip() not in ("", "nan") else "0.00"
                 )
 
+        # Garante datas em ISO YYYY-MM-DD antes de salvar (evita reinterpretação por locale do GSheets)
+        if "data" in df_export.columns:
+            df_export["data"] = pd.to_datetime(
+                df_export["data"], dayfirst=True, errors="coerce"
+            ).dt.strftime("%Y-%m-%d").where(
+                pd.to_datetime(df_export["data"], dayfirst=True, errors="coerce").notna(),
+                df_export["data"]
+            )
+
         df_export = df_export.fillna("").astype(str)
         header = df_export.columns.tolist()
         rows   = df_export.values.tolist()
-        # update com resize=True sobrescreve tudo sem precisar de clear() separado
-        _gsheet_com_retry(ws.update, [header] + rows, value_input_option="USER_ENTERED")
+        # RAW evita que o GSheets re-interprete datas pelo locale da planilha
+        _gsheet_com_retry(ws.update, [header] + rows, value_input_option="RAW")
         # Limpa linhas extras que sobraram de versões anteriores maiores
         total_linhas = len(rows) + 1
         _gsheet_com_retry(ws.resize, rows=max(total_linhas, 1))

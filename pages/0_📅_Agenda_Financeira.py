@@ -135,81 +135,104 @@ with aba_agenda:
         st.info("Nenhum lançamento pendente. Use **Lançamentos** para agendar.")
 
     st.divider()
-    st.markdown("### 📋 Todos os Pendentes por Mês")
+    st.markdown("### 📋 Pendentes por Mês")
 
     if df_pend.empty:
         st.info("Nenhum lançamento pendente ou agendado.")
     else:
         df_pend["_mes_ano"] = df_pend["_data_dt"].dt.to_period("M")
+
+        def _card_item(row, cor_tipo):
+            data_fmt  = row["_data_dt"].strftime("%d/%m/%Y") if pd.notna(row["_data_dt"]) else "—"
+            dias_para = (row["_data_dt"].date() - HOJE).days if pd.notna(row["_data_dt"]) else None
+            if dias_para is not None and dias_para < 0:
+                cor_b = "#FF4D6D"; tag_dias = f"🚨 Vencido há {abs(dias_para)}d"
+            elif dias_para == 0:
+                cor_b = "#FF4D6D"; tag_dias = "🚨 HOJE"
+            elif dias_para is not None and dias_para <= JANELA_ALERTA:
+                cor_b = "#FFB300"; tag_dias = f"⏰ {dias_para}d"
+            else:
+                cor_b = cor_tipo; tag_dias = f"{dias_para}d" if dias_para is not None else ""
+
+            col_info, col_btn = st.columns([5, 1])
+            with col_info:
+                st.markdown(
+                    f"<div style='border-left:3px solid {cor_b};padding:8px 14px;"
+                    f"background:#161B22;border-radius:6px;margin:4px 0'>"
+                    f"<b style='color:#E6EDF3'>{row['descricao']}</b>"
+                    f"<span style='color:#556878;font-size:0.82rem'>"
+                    f" · {data_fmt} <span style='color:{cor_b}'>{tag_dias}</span>"
+                    f" · {formatar_moeda(row['valor'])} · <i>{row.get('status','')}</i>"
+                    f"</span></div>", unsafe_allow_html=True
+                )
+            with col_btn:
+                if st.button("✅ Baixa", key=f"baixa_{row['id']}", use_container_width=True):
+                    st.session_state[f"form_baixa_{row['id']}"] = True
+
+            if st.session_state.get(f"form_baixa_{row['id']}"):
+                with st.form(key=f"form_{row['id']}"):
+                    st.markdown(f"**Dar baixa: {row['descricao']}** ({formatar_moeda(row['valor'])})")
+                    data_pgto = st.date_input("Data do pagamento:", value=HOJE, format="DD/MM/YYYY")
+                    banco_sel = st.selectbox("Banco:", BANCOS_PADRAO + ["➕ Outro banco..."])
+                    banco_txt = st.text_input("Nome do banco:", key=f"btxt_{row['id']}") if banco_sel == "➕ Outro banco..." else ""
+                    banco_final = banco_txt if banco_sel == "➕ Outro banco..." else banco_sel
+                    ok, cancel = st.columns(2)
+                    if ok.form_submit_button("✅ Confirmar", type="primary", use_container_width=True):
+                        if not banco_final.strip():
+                            st.error("Informe o banco!")
+                        else:
+                            is_desp = row["_tipo"] == "💸 Despesa"
+                            df_full = ler_csv(DESPESAS_FILE if is_desp else RECEITAS_FILE)
+                            idx = df_full[df_full["id"] == row["id"]].index
+                            if len(idx) > 0:
+                                obs_ant = str(df_full.loc[idx[0], "observacao"] or "")
+                                df_full.loc[idx[0], "status"]    = "Pago" if is_desp else "Recebida"
+                                df_full.loc[idx[0], "data"]       = data_pgto.strftime("%Y-%m-%d")
+                                df_full.loc[idx[0], "observacao"] = f"{obs_ant} | Pago em {data_pgto.strftime('%d/%m/%Y')} via {banco_final}".strip(" |")
+                                salvar_parquet("despesas" if is_desp else "receitas", df_full)
+                                st.session_state.pop(f"form_baixa_{row['id']}", None)
+                                mensagem_sucesso("Baixa registrada!")
+                                st.rerun()
+                    if cancel.form_submit_button("❌ Cancelar", use_container_width=True):
+                        st.session_state.pop(f"form_baixa_{row['id']}", None)
+                        st.rerun()
+
         for periodo in sorted(df_pend["_mes_ano"].dropna().unique()):
             sub     = df_pend[df_pend["_mes_ano"] == periodo].copy()
             label   = f"{MESES_PT[periodo.month - 1]} {periodo.year}"
-            total_d = sub[sub["_tipo"] == "💸 Despesa"]["valor"].sum()
-            total_r = sub[sub["_tipo"] == "💰 Receita"]["valor"].sum()
-            destaque = "🔵 " if (periodo.month == HOJE.month and periodo.year == HOJE.year) else ""
+            despesas_sub = sub[sub["_tipo"] == "💸 Despesa"]
+            receitas_sub = sub[sub["_tipo"] == "💰 Receita"]
+            total_d = despesas_sub["valor"].sum()
+            total_r = receitas_sub["valor"].sum()
+            eh_atual = (periodo.month == HOJE.month and periodo.year == HOJE.year)
 
-            with st.expander(
-                f"{destaque}📅 **{label}** — 💸 {formatar_moeda(total_d)}  |  💰 {formatar_moeda(total_r)}",
-                expanded=(periodo.month == HOJE.month and periodo.year == HOJE.year)
-            ):
-                for _, row in sub.iterrows():
-                    data_fmt  = row["_data_dt"].strftime("%d/%m/%Y") if pd.notna(row["_data_dt"]) else "—"
-                    dias_para = (row["_data_dt"].date() - HOJE).days if pd.notna(row["_data_dt"]) else None
+            with st.expander(f"{'🔵 ' if eh_atual else ''}📅 **{label}**", expanded=eh_atual):
+                # Resumo do mês
+                c1, c2, c3 = st.columns(3)
+                saldo = total_r - total_d
+                cor_s = "#00C953" if saldo >= 0 else "#FF4D6D"
+                c1.metric("💸 A Pagar", formatar_moeda(total_d))
+                c2.metric("💰 A Receber", formatar_moeda(total_r))
+                c3.metric("💵 Saldo", formatar_moeda(saldo))
+                st.divider()
 
-                    if dias_para is not None and dias_para <= 0:
-                        cor_b    = "#FF4D6D"
-                        tag_dias = "🚨 HOJE" if dias_para == 0 else f"🚨 Vencido há {abs(dias_para)}d"
-                    elif dias_para is not None and dias_para <= JANELA_ALERTA:
-                        cor_b    = "#FFB300"
-                        tag_dias = f"⏰ {dias_para}d"
+                col_desp, col_rec = st.columns(2)
+
+                with col_desp:
+                    st.markdown(f"#### 💸 Despesas ({len(despesas_sub)})")
+                    if despesas_sub.empty:
+                        st.caption("Nenhuma despesa pendente")
                     else:
-                        cor_b    = "#30363D"
-                        tag_dias = f"{dias_para}d" if dias_para is not None else ""
+                        for _, row in despesas_sub.iterrows():
+                            _card_item(row, "#FF4D6D")
 
-                    col_info, col_btn = st.columns([5, 1])
-                    with col_info:
-                        st.markdown(
-                            f"<div style='border-left:3px solid {cor_b};padding:8px 14px;"
-                            f"background:#161B22;border-radius:6px;margin:4px 0'>"
-                            f"<span style='color:#E6EDF3;font-weight:600'>{row['_tipo']} {row['descricao']}</span>"
-                            f"<span style='color:#556878;font-size:0.8rem'> · {data_fmt} "
-                            f"<span style='color:{cor_b}'>{tag_dias}</span>"
-                            f" · {formatar_moeda(row['valor'])} · <i>{row.get('status','')}</i></span>"
-                            f"</div>", unsafe_allow_html=True
-                        )
-                    with col_btn:
-                        if st.button("✅ Baixa", key=f"baixa_{row['id']}", use_container_width=True):
-                            st.session_state[f"form_baixa_{row['id']}"] = True
-
-                    if st.session_state.get(f"form_baixa_{row['id']}"):
-                        with st.form(key=f"form_{row['id']}"):
-                            st.markdown(f"**Dar baixa: {row['descricao']}** ({formatar_moeda(row['valor'])})")
-                            data_pgto = st.date_input("Data do pagamento:", value=HOJE, format="DD/MM/YYYY")
-                            banco_sel = st.selectbox("Banco:", BANCOS_PADRAO + ["➕ Outro banco..."])
-                            banco_txt = st.text_input("Nome do banco:", key=f"btxt_{row['id']}") if banco_sel == "➕ Outro banco..." else ""
-                            banco_final = banco_txt if banco_sel == "➕ Outro banco..." else banco_sel
-
-                            ok, cancel = st.columns(2)
-                            if ok.form_submit_button("✅ Confirmar", type="primary", use_container_width=True):
-                                if not banco_final.strip():
-                                    st.error("Informe o banco!")
-                                else:
-                                    is_desp = row["_tipo"] == "💸 Despesa"
-                                    arq     = DESPESAS_FILE if is_desp else RECEITAS_FILE
-                                    df_full = ler_csv(arq)
-                                    idx     = df_full[df_full["id"] == row["id"]].index
-                                    if len(idx) > 0:
-                                        obs_ant = str(df_full.loc[idx[0], "observacao"] or "")
-                                        df_full.loc[idx[0], "status"]     = "Pago" if is_desp else "Recebida"
-                                        df_full.loc[idx[0], "data"]        = data_pgto.strftime("%Y-%m-%d")
-                                        df_full.loc[idx[0], "observacao"]  = f"{obs_ant} | Pago em {data_pgto.strftime('%d/%m/%Y')} via {banco_final}".strip(" |")
-                                        salvar_parquet("despesas" if is_desp else "receitas", df_full)
-                                        st.session_state.pop(f"form_baixa_{row['id']}", None)
-                                        mensagem_sucesso(f"Baixa registrada!")
-                                        st.rerun()
-                            if cancel.form_submit_button("❌ Cancelar", use_container_width=True):
-                                st.session_state.pop(f"form_baixa_{row['id']}", None)
-                                st.rerun()
+                with col_rec:
+                    st.markdown(f"#### 💰 Receitas ({len(receitas_sub)})")
+                    if receitas_sub.empty:
+                        st.caption("Nenhuma receita pendente")
+                    else:
+                        for _, row in receitas_sub.iterrows():
+                            _card_item(row, "#00C953")
 
 
 # ════════════════════════════════════════════════════════════

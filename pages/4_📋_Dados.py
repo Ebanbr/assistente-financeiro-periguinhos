@@ -468,11 +468,8 @@ with tab_lanc:
             salvar_parquet("receitas", df_r_save)
             invalidar_cache("despesas"); invalidar_cache("receitas")
 
-            msg = []
-            if deleted_ids: msg.append(f"{len(deleted_ids)} deletado(s)")
-            st.rerun() if not msg else None
-            mensagem_sucesso("✅ " + (" · ".join(msg) if msg else "Alterações salvas!"))
-            log_atividade("editou lançamentos", f"{len(deleted_ids)} deletados via tabela" if deleted_ids else "edições salvas")
+            mensagem_sucesso("✅ Alterações salvas!")
+            log_atividade("editou lançamentos", "edições salvas via tabela")
             st.rerun()
 
     else:

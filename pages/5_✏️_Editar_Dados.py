@@ -97,8 +97,14 @@ with aba_editar:
 
     # ── Selecionar lançamento ─────────────────────────────────
     st.markdown("### Selecione o lançamento:")
+    def _fmt_data(v):
+        try:
+            return pd.to_datetime(v, dayfirst=True, errors="coerce").strftime("%d/%m/%Y")
+        except Exception:
+            return str(v)
+
     opcoes = [
-        f"{row['data']} | {row['descricao'][:40]} | {formatar_moeda(row['valor'])}"
+        f"{_fmt_data(row['data'])} | {row['descricao'][:40]} | {formatar_moeda(row['valor'])}"
         for _, row in df_filt.iterrows()
     ]
     selecionado_idx = st.selectbox("Lançamento:", range(len(opcoes)), format_func=lambda i: opcoes[i])
@@ -112,7 +118,7 @@ with aba_editar:
     with col1:
         nova_desc  = st.text_input("Descrição:", value=str(linha["descricao"]))
         novo_valor = st.number_input("Valor (R$):", value=float(linha["valor"]), min_value=0.0, step=0.01)
-        novo_data  = st.date_input("Data:", value=pd.to_datetime(linha["data"]).date())
+        novo_data  = st.date_input("Data:", value=pd.to_datetime(linha["data"], dayfirst=True, errors="coerce").date(), format="DD/MM/YYYY")
 
     with col2:
         cats = listar_categorias(tipo_cat)

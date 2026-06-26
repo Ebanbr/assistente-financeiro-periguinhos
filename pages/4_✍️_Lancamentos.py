@@ -41,7 +41,7 @@ with col_tipo:
     tipo = st.radio("Tipo:", ["💸 Despesa", "💰 Receita"], horizontal=True)
 
 with col_data:
-    data = st.date_input("Data:", value=date.today())
+    data = st.date_input("Data:", value=date.today(), format="DD/MM/YYYY")
 
 st.markdown("---")
 

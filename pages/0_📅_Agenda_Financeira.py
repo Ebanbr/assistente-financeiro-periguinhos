@@ -184,7 +184,7 @@ with aba_agenda:
                     if st.session_state.get(f"form_baixa_{row['id']}"):
                         with st.form(key=f"form_{row['id']}"):
                             st.markdown(f"**Dar baixa: {row['descricao']}** ({formatar_moeda(row['valor'])})")
-                            data_pgto = st.date_input("Data do pagamento:", value=HOJE)
+                            data_pgto = st.date_input("Data do pagamento:", value=HOJE, format="DD/MM/YYYY")
                             banco_sel = st.selectbox("Banco:", BANCOS_PADRAO + ["➕ Outro banco..."])
                             banco_txt = st.text_input("Nome do banco:", key=f"btxt_{row['id']}") if banco_sel == "➕ Outro banco..." else ""
                             banco_final = banco_txt if banco_sel == "➕ Outro banco..." else banco_sel

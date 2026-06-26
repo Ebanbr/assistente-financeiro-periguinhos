@@ -497,6 +497,37 @@ with tab_cats:
                             df_show = df_show.sort_values("data", ascending=False)
                             df_show.columns = ["Data", "Descrição", "Valor", "Status"]
                             st.dataframe(df_show, use_container_width=True, hide_index=True, height=min(200, 40 + qtd * 36))
+
+                            # ── Recategorizar ──────────────────────────────
+                            st.divider()
+                            st.markdown("**🔀 Recategorizar itens desta categoria**")
+                            descs_unicas = sorted(df_lanc_cat["descricao"].dropna().unique().tolist())
+                            col_rc1, col_rc2 = st.columns(2)
+                            with col_rc1:
+                                descs_sel = st.multiselect(
+                                    "Descrições a mover:",
+                                    options=descs_unicas,
+                                    placeholder="Selecione uma ou mais...",
+                                    key=f"rc_descs_{tipo_cat}_{cat}",
+                                )
+                            with col_rc2:
+                                outras_cats = [c for c in cats if c != cat] + ["📦 Outros"]
+                                nova_cat_rc = st.selectbox(
+                                    "Nova categoria:",
+                                    options=outras_cats,
+                                    key=f"rc_nova_{tipo_cat}_{cat}",
+                                )
+                            if descs_sel:
+                                n_af = int(df_lanc_cat["descricao"].isin(descs_sel).sum())
+                                st.caption(f"ℹ️ {n_af} lançamento(s) serão movidos para **{nova_cat_rc}**")
+                                if st.button(f"✅ Mover para \"{nova_cat_rc}\"", key=f"rc_btn_{tipo_cat}_{cat}", type="primary", use_container_width=True):
+                                    df_full = ler_csv(arquivo_cat)
+                                    mask_rc = df_full["descricao"].isin(descs_sel) & (df_full["categoria"] == cat)
+                                    df_full.loc[mask_rc, "categoria"] = nova_cat_rc
+                                    salvar_parquet(arquivo_cat, df_full)
+                                    st.cache_data.clear()
+                                    mensagem_sucesso(f"✅ {int(mask_rc.sum())} lançamentos → \"{nova_cat_rc}\"")
+                                    st.rerun()
                         else:
                             st.caption("Nenhum lançamento nesta categoria.")
 

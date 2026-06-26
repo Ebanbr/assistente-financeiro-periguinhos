@@ -260,16 +260,16 @@ if not df_d.empty and not df_r.empty and "data_dt" in df_d.columns and "data_dt"
 
     fig3 = go.Figure()
     fig3.add_trace(go.Scatter(
-        x=df_evolucao.index, y=df_evolucao["receitas"],
-        name="Receitas", line=dict(color="#4A9EFF", width=2),
-        fill="tozeroy", fillcolor="rgba(74,158,255,0.08)",
-        hovertemplate="<b>%{x}</b><br>Receitas: R$ %{y:,.2f}<extra></extra>"
-    ))
-    fig3.add_trace(go.Scatter(
         x=df_evolucao.index, y=df_evolucao["despesas"],
         name="Despesas", line=dict(color="#FF4D6D", width=2),
         fill="tozeroy", fillcolor="rgba(255,77,109,0.08)",
         hovertemplate="<b>%{x}</b><br>Despesas: R$ %{y:,.2f}<extra></extra>"
+    ))
+    fig3.add_trace(go.Scatter(
+        x=df_evolucao.index, y=df_evolucao["receitas"],
+        name="Receitas", line=dict(color="#4A9EFF", width=2),
+        fill="tozeroy", fillcolor="rgba(74,158,255,0.08)",
+        hovertemplate="<b>%{x}</b><br>Receitas: R$ %{y:,.2f}<extra></extra>"
     ))
     fig3.add_trace(go.Scatter(
         x=df_evolucao.index, y=df_evolucao["saldo"],

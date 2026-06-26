@@ -911,11 +911,8 @@ with tab_import:
                     df_raw["_prop"]       = df_raw["Propriedade"].apply(limpar_link_notion) if "Propriedade" in df_raw.columns else "📦 Outros"
                     df_raw["_vencimento"] = df_raw["Vencimento"].apply(to_iso)
 
-                    def data_efetiva(row):
-                        dpg = row.get("Data de PG", "")
-                        iso = to_iso(dpg)
-                        return iso if iso and len(iso) == 10 else row["_vencimento"]
-                    df_raw["_data"] = df_raw.apply(data_efetiva, axis=1)
+                    # Data do lançamento = Vencimento sempre (Data de PG só define status)
+                    df_raw["_data"] = df_raw["_vencimento"]
 
                     def detectar_pago(row):
                         campo = str(row.get("Pago", "")).lower().strip()

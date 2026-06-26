@@ -684,6 +684,35 @@ with tab_cats:
     with sub_recateg:
         st.markdown("### ⚡ Recategorizar em Massa")
 
+        # ── Recategorizar por descrição (todos de uma vez) ────
+        st.markdown("#### 🔎 Por Descrição — aplica em todos os registros com o mesmo nome")
+        col_qr1, col_qr2, col_qr3 = st.columns([3, 3, 2])
+        with col_qr1:
+            tipo_qr   = st.radio("Tipo:", ["💸 Despesas", "💰 Receitas"], horizontal=True, key="tipo_qr")
+            tab_qr    = "despesas" if "💸" in tipo_qr else "receitas"
+            df_qr_all = ler_csv(tab_qr)
+            descs_qr  = sorted(df_qr_all["descricao"].dropna().unique().tolist()) if not df_qr_all.empty else []
+            desc_qr   = st.selectbox("Descrição:", descs_qr, key="desc_qr") if descs_qr else None
+        with col_qr2:
+            ALL_CATS_QR = sorted(set(listar_categorias("despesa") + listar_categorias("receita")))
+            nova_cat_qr = st.selectbox("Nova categoria:", ALL_CATS_QR, key="nova_cat_qr")
+        with col_qr3:
+            if desc_qr and not df_qr_all.empty:
+                n_qr = int((df_qr_all["descricao"] == desc_qr).sum())
+                cat_atual_qr = df_qr_all[df_qr_all["descricao"] == desc_qr]["categoria"].mode()
+                cat_atual_qr = cat_atual_qr.iloc[0] if not cat_atual_qr.empty else "?"
+                st.caption(f"**{n_qr} registro(s)**\nCategoria atual: {cat_atual_qr}")
+                if st.button(f"✅ Aplicar em todos", type="primary", use_container_width=True, key="btn_qr"):
+                    df_qr_save = ler_csv(tab_qr)
+                    mask_qr = df_qr_save["descricao"] == desc_qr
+                    df_qr_save.loc[mask_qr, "categoria"] = nova_cat_qr
+                    salvar_parquet(tab_qr, df_qr_save)
+                    st.cache_data.clear()
+                    mensagem_sucesso(f"✅ {int(mask_qr.sum())} lançamentos \"{desc_qr}\" → \"{nova_cat_qr}\"")
+                    st.rerun()
+
+        st.divider()
+
         # ── Filtro + tabela editável ──────────────────────────
         col_rm1, col_rm2, col_rm3 = st.columns(3)
         with col_rm1:

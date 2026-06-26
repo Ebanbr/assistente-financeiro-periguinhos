@@ -375,10 +375,11 @@ def _salvar_novas(tabela: str, df: pd.DataFrame) -> int:
     if not df_existente.empty:
         chaves = set(zip(
             df_existente["data"].astype(str),
-            df_existente["descricao"].astype(str)
+            df_existente["descricao"].astype(str),
+            df_existente["valor"].astype(float).round(2).astype(str),
         ))
         df_novo = df[~df.apply(
-            lambda r: (str(r["data"]), str(r["descricao"])) in chaves, axis=1
+            lambda r: (str(r["data"]), str(r["descricao"]), str(round(float(r["valor"]), 2))) in chaves, axis=1
         )]
         if df_novo.empty:
             return 0

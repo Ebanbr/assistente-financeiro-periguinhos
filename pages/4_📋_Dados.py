@@ -101,6 +101,18 @@ def limpar_categoria(prop, fallback="📦 Outros"):
     return s
 
 # ══════════════════════════════════════════════════════════════
+# CARREGA DADOS UMA VEZ (evita múltiplos hits na API por render)
+# ══════════════════════════════════════════════════════════════
+
+_DF_DESP  = ler_csv(DESPESAS_FILE)
+_DF_REC   = ler_csv(RECEITAS_FILE)
+_DF_MAPS  = ler_csv(MAPEAMENTOS_FILE)
+_DF_CART  = ler_csv(CARTOES_FILE)
+_CATS_D   = listar_categorias("despesa")
+_CATS_R   = listar_categorias("receita")
+_ALL_CATS = sorted(set(_CATS_D + _CATS_R))
+
+# ══════════════════════════════════════════════════════════════
 # ABAS PRINCIPAIS
 # ══════════════════════════════════════════════════════════════
 
@@ -123,8 +135,8 @@ with tab_lanc:
         with col_data:
             data_form = st.date_input("Data:", value=date.today(), format="DD/MM/YYYY", key="data_form")
 
-        _hist_desp = ler_csv(DESPESAS_FILE)
-        _hist_rec  = ler_csv(RECEITAS_FILE)
+        _hist_desp = _DF_DESP
+        _hist_rec  = _DF_REC
 
         if "💸" in tipo_form:
             col1, col2 = st.columns(2)
@@ -146,7 +158,7 @@ with tab_lanc:
                     st.caption(f"✅ **{desc_form}** · Categoria: **{cat_sug_d}**")
 
             with col2:
-                cats_d  = listar_categorias("despesa")
+                cats_d  = _CATS_D
                 idx_cat = (cats_d.index(cat_sug_d) + 1) if cat_sug_d in cats_d else 0
                 cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_d, index=idx_cat, key="cat_desp")
                 cat_form = st.text_input("Nome:", placeholder="Ex: 🎮 Games", key="nova_cat_desp") if cat_sel == "➕ Nova categoria..." else cat_sel
@@ -227,7 +239,7 @@ with tab_lanc:
                     st.caption(f"✅ **{desc_form}** · Categoria: **{cat_sug_r}**")
 
             with col2:
-                cats_r  = listar_categorias("receita")
+                cats_r  = _CATS_R
                 idx_cat = (cats_r.index(cat_sug_r) + 1) if cat_sug_r in cats_r else 0
                 cat_sel = st.selectbox("Categoria:", ["➕ Nova categoria..."] + cats_r, index=idx_cat, key="cat_rec")
                 cat_form = st.text_input("Nome:", placeholder="Ex: 💡 Consultoria", key="nova_cat_rec") if cat_sel == "➕ Nova categoria..." else cat_sel
@@ -287,9 +299,9 @@ with tab_lanc:
     with col_f5:
         busca_f = st.text_input("🔍 Busca:", placeholder="Digite para filtrar...", key="tf_busca")
 
-    # Carrega dados
-    df_d_full = ler_csv(DESPESAS_FILE)
-    df_r_full = ler_csv(RECEITAS_FILE)
+    # Usa dados já carregados no topo
+    df_d_full = _DF_DESP.copy() if not _DF_DESP.empty else _DF_DESP
+    df_r_full = _DF_REC.copy()  if not _DF_REC.empty  else _DF_REC
 
     if not df_d_full.empty:
         df_d_full["_tabela"] = "despesas"
@@ -335,7 +347,7 @@ with tab_lanc:
     st.caption("✏️ Clique em qualquer célula para editar · Use o ícone 🗑️ (hover na linha) para deletar · Clique em **Salvar** para confirmar.")
 
     # Prepara df para o data_editor
-    ALL_CATS    = sorted(set(listar_categorias("despesa") + listar_categorias("receita")))
+    ALL_CATS    = _ALL_CATS
     STATUS_OPTS = ["Pago", "Recebida", "A Pagar", "A Receber", "Agendado", "Pendente"]
 
     if not df_view.empty:
@@ -461,8 +473,8 @@ with tab_cats:
     with sub_cats:
         st.markdown("### 🏷️ Gerenciar Categorias")
 
-        df_d_cat = ler_csv(DESPESAS_FILE)
-        df_r_cat = ler_csv(RECEITAS_FILE)
+        df_d_cat = _DF_DESP
+        df_r_cat = _DF_REC
 
         col_c1, col_c2 = st.columns(2)
 
@@ -473,7 +485,7 @@ with tab_cats:
             label = "💸 Despesas" if tipo_cat == "despesa" else "💰 Receitas"
             with col_side:
                 st.markdown(f"#### {label}")
-                cats = listar_categorias(tipo_cat)
+                cats = _CATS_D if tipo_cat == "despesa" else _CATS_R
 
                 for cat in cats:
                     qtd = total = 0
@@ -637,7 +649,7 @@ with tab_cats:
                 st.info("Nenhuma regra nova — tudo já mapeado.")
 
         st.divider()
-        df_reg = ler_csv(MAPEAMENTOS_FILE)
+        df_reg = _DF_MAPS
 
         if df_reg.empty:
             if st.button("🚀 Carregar Regras Padrão", type="primary", use_container_width=True):
@@ -655,7 +667,7 @@ with tab_cats:
         col1, col2, col3 = st.columns(3)
         with col1: novo_pad = st.text_input("Palavra-chave:", placeholder="Netflix...", key="reg_pad")
         with col2:
-            cats_ex = listar_categorias("despesa")
+            cats_ex = _CATS_D
             cat_sel_r = st.selectbox("Categoria:", ["➕ Nova..."] + cats_ex, key="reg_cat_sel")
             nova_cat_reg = st.text_input("Nome:", key="reg_nova_cat") if cat_sel_r == "➕ Nova..." else cat_sel_r
         with col3:
@@ -690,11 +702,11 @@ with tab_cats:
         with col_qr1:
             tipo_qr   = st.radio("Tipo:", ["💸 Despesas", "💰 Receitas"], horizontal=True, key="tipo_qr")
             tab_qr    = "despesas" if "💸" in tipo_qr else "receitas"
-            df_qr_all = ler_csv(tab_qr)
+            df_qr_all = _DF_DESP if tab_qr == "despesas" else _DF_REC
             descs_qr  = sorted(df_qr_all["descricao"].dropna().unique().tolist()) if not df_qr_all.empty else []
             desc_qr   = st.selectbox("Descrição:", descs_qr, key="desc_qr") if descs_qr else None
         with col_qr2:
-            ALL_CATS_QR = sorted(set(listar_categorias("despesa") + listar_categorias("receita")))
+            ALL_CATS_QR = _ALL_CATS
             nova_cat_qr = st.selectbox("Nova categoria:", ALL_CATS_QR, key="nova_cat_qr")
         with col_qr3:
             if desc_qr and not df_qr_all.empty:
@@ -718,7 +730,7 @@ with tab_cats:
         with col_rm1:
             tipo_rm = st.radio("Tipo:", ["💸 Despesas", "💰 Receitas"], horizontal=True, key="tipo_rm")
         with col_rm2:
-            df_rm_full = ler_csv("despesas" if "💸" in tipo_rm else "receitas")
+            df_rm_full = _DF_DESP if "💸" in tipo_rm else _DF_REC
             cats_rm = ["Todas"] + sorted(df_rm_full["categoria"].dropna().unique().tolist()) if not df_rm_full.empty and "categoria" in df_rm_full.columns else ["Todas"]
             cat_rm_filtro = st.selectbox("Filtrar categoria:", cats_rm, key="cat_rm_filtro")
         with col_rm3:
@@ -737,7 +749,7 @@ with tab_cats:
 
             st.caption(f"**{len(df_rm_view)} lançamentos** · Clique na coluna Categoria para alterar · Clique **Salvar** para confirmar.")
 
-            ALL_CATS_RM = sorted(set(listar_categorias("despesa") + listar_categorias("receita")))
+            ALL_CATS_RM = _ALL_CATS
             cols_rm = ["data", "descricao", "categoria", "valor", "status", "id"]
             df_rm_ed = df_rm_view.reindex(columns=cols_rm).copy()
             df_rm_ed["data"]  = pd.to_datetime(df_rm_ed["data"], dayfirst=True, errors="coerce").dt.date
@@ -803,7 +815,7 @@ with tab_cats:
 
         st.divider()
         st.markdown("### 🔍 Sem Categoria Definida")
-        df_sc = ler_csv(DESPESAS_FILE)
+        df_sc = _DF_DESP
         if not df_sc.empty and "categoria" in df_sc.columns:
             sem_cat = df_sc[df_sc["categoria"].astype(str).str.contains("Outros|outros", na=False)]
             if not sem_cat.empty:
@@ -836,8 +848,8 @@ with tab_import:
             "Re-importar **substitui apenas dados do Notion** — C6 e Manuais preservados."
         )
 
-        df_n_atual = ler_csv(DESPESAS_FILE)
-        df_n_rec   = ler_csv(RECEITAS_FILE)
+        df_n_atual = _DF_DESP
+        df_n_rec   = _DF_REC
         n_nd = int((df_n_atual["fonte"] == "Notion").sum()) if not df_n_atual.empty and "fonte" in df_n_atual.columns else 0
         n_nr = int((df_n_rec["fonte"]   == "Notion").sum()) if not df_n_rec.empty   and "fonte" in df_n_rec.columns   else 0
         if n_nd or n_nr:
@@ -996,7 +1008,7 @@ with tab_import:
         }
         MESES_NOME = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
 
-        cartoes_df    = ler_csv(CARTOES_FILE)
+        cartoes_df    = _DF_CART
         nomes_cartoes = cartoes_df["nome"].tolist() if not cartoes_df.empty and "nome" in cartoes_df.columns else []
         cartao_sel    = st.selectbox("Cartão desta fatura:", nomes_cartoes, key="c6_cartao") if nomes_cartoes else st.text_input("Nome do cartão:", value="C6 BRU", key="c6_cartao_txt")
 
@@ -1212,8 +1224,8 @@ with tab_import:
     # ── Sub: Diagnóstico ──────────────────────────────────────
     with sub_diag:
         st.markdown("### 🔍 Diagnóstico")
-        df_diag_d = ler_csv(DESPESAS_FILE)
-        df_diag_r = ler_csv(RECEITAS_FILE)
+        df_diag_d = _DF_DESP
+        df_diag_r = _DF_REC
         col1, col2 = st.columns(2)
         with col1:
             st.markdown("#### 💸 Despesas por fonte")

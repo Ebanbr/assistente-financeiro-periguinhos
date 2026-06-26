@@ -1,5 +1,5 @@
 ﻿# ============================================================
-#  6_🏰_Projeto_Disney.py — Sonho da Família
+#  6_🌴_Projeto_Férias.py — Sonho da Família
 #  Assistente Financeiro da Família Periguinhos 🐧
 # ============================================================
 
@@ -18,7 +18,7 @@ from utils import (
     ler_json, salvar_json, formatar_moeda, mensagem_sucesso,
 )
 
-configurar_pagina("Projeto Disney", icone="🏰")
+configurar_pagina("Projeto Férias", icone="🌴")
 inicializar_dados()
 
 st.markdown(f"""
@@ -31,9 +31,9 @@ st.markdown(f"""
     box-shadow: 0 8px 32px rgba(0,0,0,0.3);
     border: 1px solid rgba(255,215,0,0.3);
 ">
-    <div style="font-size:3rem;">🏰✨</div>
+    <div style="font-size:3rem;">🌴✨</div>
     <h1 style="color:#FFD700; margin:0.5rem 0; font-size:2rem; text-shadow: 0 0 20px rgba(255,215,0,0.5);">
-        Projeto Disney
+        Projeto Férias
     </h1>
     <p style="color:rgba(255,255,255,0.7); margin:0;">
         O sonho da Família Periguinhos — guardando cada centavo para realizar! 🐧
@@ -43,12 +43,12 @@ st.markdown(f"""
 
 hoje = date.today()
 config = ler_json(CONFIG_FILE)
-meta_valor      = float(config.get("disney_meta_valor", 25000.0))
-eco_mensal      = float(config.get("disney_economia_mensal", 500.0))
-valor_atual     = float(config.get("disney_valor_atual", 0.0))
+meta_valor      = float(config.get("ferias_meta_valor", 25000.0))
+eco_mensal      = float(config.get("ferias_economia_mensal", 500.0))
+valor_atual     = float(config.get("ferias_valor_atual", 0.0))
 
-with st.expander("⚙️ Configurar Meta Disney", expanded=(meta_valor == 25000.0)):
-    with st.form("form_disney_config"):
+with st.expander("⚙️ Configurar Meta Férias", expanded=(meta_valor == 25000.0)):
+    with st.form("form_ferias_config"):
         col1, col2, col3 = st.columns(3)
         with col1:
             nova_meta    = st.number_input("🎯 Valor Total da Meta (R$)", value=meta_valor,
@@ -61,17 +61,17 @@ with st.expander("⚙️ Configurar Meta Disney", expanded=(meta_valor == 25000.
                                            min_value=0.0, step=100.0, format="%.2f")
 
         if st.form_submit_button("💾 Salvar Configurações", type="primary", use_container_width=True):
-            config["disney_meta_valor"]       = nova_meta
-            config["disney_economia_mensal"]  = nova_eco
-            config["disney_valor_atual"]      = novo_atual
+            config["ferias_meta_valor"]       = nova_meta
+            config["ferias_economia_mensal"]  = nova_eco
+            config["ferias_valor_atual"]      = novo_atual
             salvar_json(CONFIG_FILE, config)
             mensagem_sucesso("Configurações salvas!")
             st.rerun()
 
 config      = ler_json(CONFIG_FILE)
-meta_valor  = float(config.get("disney_meta_valor", 25000.0))
-eco_mensal  = float(config.get("disney_economia_mensal", 500.0))
-valor_atual = float(config.get("disney_valor_atual", 0.0))
+meta_valor  = float(config.get("ferias_meta_valor", 25000.0))
+eco_mensal  = float(config.get("ferias_economia_mensal", 500.0))
+valor_atual = float(config.get("ferias_valor_atual", 0.0))
 
 faltando    = max(meta_valor - valor_atual, 0)
 percentual  = min((valor_atual / meta_valor * 100) if meta_valor > 0 else 0, 100)
@@ -123,7 +123,7 @@ cor_barra = "#06D6A0" if percentual >= 75 else "#FFD166" if percentual >= 40 els
 st.markdown(f"""
 <div style="margin: 0.5rem 0 1.5rem;">
     <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
-        <span style="font-weight:700; color:#1E3A5F;">🏰 Progresso até a Disney</span>
+        <span style="font-weight:700; color:#1E3A5F;">🌴 Progresso até a Férias</span>
         <span style="font-weight:800; color:{cor_barra}; font-size:1.1rem;">{percentual:.1f}%</span>
     </div>
     <div style="background:#e0e0e0; border-radius:50px; height:24px; overflow:hidden; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);">
@@ -211,7 +211,7 @@ with col_s2:
     """, unsafe_allow_html=True)
 
 st.divider()
-st.markdown("### 💡 Dicas para chegar mais rápido à Disney")
+st.markdown("### 💡 Dicas para chegar mais rápido à Férias")
 st.markdown("""
 - ☕ **Café fora**: Fazer café em casa pode economizar R$ 150/mês
 - 🍕 **Delivery**: Reduzir 2 pedidos por mês = R$ 80-120 a mais
@@ -221,6 +221,6 @@ st.markdown("""
 
 st.markdown("""
 <div style="text-align:center; padding:1rem; color:#8D99AE; font-size:0.85rem;">
-    🌟 Cada real guardado é um passo mais perto da magia! 🏰✨
+    🌟 Cada real guardado é um passo mais perto da magia! 🌴✨
 </div>
 """, unsafe_allow_html=True)

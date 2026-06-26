@@ -449,6 +449,7 @@ with aba2:
                     if not df_historico.empty and "fonte" in df_historico.columns:
                         mask_prov = (
                             (df_historico["fonte"].astype(str) == "Manual") &
+                            (~df_historico.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.contains("PIX|Pix|pix", na=False)) &
                             (df_historico.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower() == cartao_sel.strip().lower()) &
                             (pd.to_datetime(df_historico["data"], dayfirst=True, errors="coerce").dt.month == mes_f) &
                             (pd.to_datetime(df_historico["data"], dayfirst=True, errors="coerce").dt.year == ano_f)

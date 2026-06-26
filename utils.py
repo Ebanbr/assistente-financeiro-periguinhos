@@ -73,6 +73,39 @@ def _gsheet_com_retry(fn, *args, tentativas=5, **kwargs):
             else:
                 raise
 
+def _parse_data_robusta(serie) -> pd.Series:
+    """Parser ÚNICO e canônico de datas — fonte de verdade do app inteiro.
+
+    Aceita:
+      • ISO  'YYYY-MM-DD' (opcional com hora) → tratado como NÃO ambíguo
+      • BR   'DD/MM/YYYY' / 'DD-MM-YYYY'      → dayfirst (padrão brasileiro)
+
+    Retorna pd.Series datetime64. Nunca usa MM/DD silenciosamente.
+    """
+    s = serie.astype(str).str.strip()
+    # descarta hora se vier ("2026-06-05 00:00:00" / "2026-06-05T...")
+    s_data = s.str.split(" ").str[0].str.split("T").str[0]
+    iso_mask = s_data.str.match(r"^\d{4}-\d{1,2}-\d{1,2}$")
+    # ISO: parse direto (pandas não aplica dayfirst em YYYY-MM-DD)
+    iso_parsed = pd.to_datetime(s_data.where(iso_mask), errors="coerce")
+    # Resto: formato brasileiro, dia primeiro
+    br_parsed  = pd.to_datetime(s.where(~iso_mask), dayfirst=True, errors="coerce")
+    return iso_parsed.fillna(br_parsed)
+
+
+def _normalizar_coluna_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Garante df['data_dt'] correto E df['data'] em ISO 'YYYY-MM-DD'.
+
+    Normalizar 'data' para ISO faz com que QUALQUER pd.to_datetime() posterior
+    (com ou sem dayfirst) leia a data corretamente — ISO é não ambíguo.
+    """
+    if "data" in df.columns:
+        dt = _parse_data_robusta(df["data"])
+        df["data_dt"] = dt
+        df["data"] = dt.dt.strftime("%Y-%m-%d").where(dt.notna(), df["data"])
+    return df
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
     try:
@@ -120,8 +153,7 @@ def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
                     return ""
                 df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco)
 
-        if "data" in df.columns:
-            df["data_dt"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
+        df = _normalizar_coluna_data(df)
         if "valor" in df.columns:
             df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
 
@@ -169,12 +201,8 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
 
         # Garante datas em ISO YYYY-MM-DD antes de salvar (evita reinterpretação por locale do GSheets)
         if "data" in df_export.columns:
-            df_export["data"] = pd.to_datetime(
-                df_export["data"], dayfirst=True, errors="coerce"
-            ).dt.strftime("%Y-%m-%d").where(
-                pd.to_datetime(df_export["data"], dayfirst=True, errors="coerce").notna(),
-                df_export["data"]
-            )
+            _dt = _parse_data_robusta(df_export["data"])
+            df_export["data"] = _dt.dt.strftime("%Y-%m-%d").where(_dt.notna(), df_export["data"])
 
         df_export = df_export.fillna("").astype(str)
         header = df_export.columns.tolist()
@@ -372,7 +400,7 @@ def ler_csv(arquivo) -> pd.DataFrame:
                     return ""
                 df.loc[mask_vazio, "banco"] = df.loc[mask_vazio, "descricao"].apply(_inferir_banco_p)
         if not df.empty and "data" in df.columns:
-            df["data_dt"] = pd.to_datetime(df["data"], dayfirst=True, errors="coerce")
+            df = _normalizar_coluna_data(df)
         return df
     except Exception as e:
         mensagem_erro(f"Erro ao ler {arquivo_parquet}: {e}")
@@ -395,6 +423,10 @@ def salvar_parquet(tabela: str, df: pd.DataFrame):
         df_save = df.copy()
         if "data_dt" in df_save.columns:
             df_save = df_save.drop(columns=["data_dt"])
+        # Normaliza 'data' para ISO YYYY-MM-DD (mesma fonte de verdade do GSheets)
+        if "data" in df_save.columns:
+            _dt = _parse_data_robusta(df_save["data"])
+            df_save["data"] = _dt.dt.strftime("%Y-%m-%d").where(_dt.notna(), df_save["data"])
         df_save.to_parquet(arquivo, engine="pyarrow", index=False)
     except Exception as e:
         mensagem_erro(f"Erro ao salvar {tabela}: {e}")

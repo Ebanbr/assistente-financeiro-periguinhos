@@ -934,12 +934,35 @@ with tab_import:
                     else:
                         df_raw["_valor_bruto"] = 0.0
 
-                    df_raw["_val_rec"]  = df_raw["_valor_bruto"].apply(lambda x: x  if x > 0 else 0.0)
-                    df_raw["_val_desp"] = df_raw["_valor_bruto"].apply(lambda x: abs(x) if x < 0 else 0.0)
-                    mask_rec  = df_raw["_val_rec"] > 0
-                    mask_desp = (df_raw["_val_desp"] > 0) & (~mask_rec)
-                    df_desp_n = df_raw[mask_desp].copy()
-                    df_rec_n  = df_raw[mask_rec].copy()
+                    # Usa coluna Rec/Des se disponível (mais confiável que o sinal)
+                    if "Rec/Des" in df_raw.columns:
+                        tipo_col = df_raw["Rec/Des"].astype(str).str.strip().str.lower()
+                        mask_desp = tipo_col.isin(["despesa", "despesas", "expense", "saída", "saida"])
+                        mask_rec  = tipo_col.isin(["receita", "receitas", "income", "entrada"])
+                        # Para os que não bateram, usa sinal do valor como fallback
+                        sem_tipo = ~(mask_desp | mask_rec)
+                        mask_desp = mask_desp | (sem_tipo & (df_raw["_valor_bruto"] < 0))
+                        mask_rec  = mask_rec  | (sem_tipo & (df_raw["_valor_bruto"] > 0))
+                    else:
+                        mask_rec  = df_raw["_valor_bruto"] > 0
+                        mask_desp = df_raw["_valor_bruto"] < 0
+
+                    # Valor absoluto para cada tipo
+                    df_raw["_val_desp"] = df_raw["_valor_bruto"].abs().where(mask_desp, 0.0)
+                    df_raw["_val_rec"]  = df_raw["_valor_bruto"].abs().where(mask_rec,  0.0)
+
+                    # Usa coluna Despesas/Receitas dedicada se o valor calculado for 0
+                    if "Despesas" in df_raw.columns:
+                        val_desp_col = df_raw["Despesas"].apply(lambda x: abs(limpar_valor(x)))
+                        df_raw["_val_desp"] = df_raw.apply(
+                            lambda r: val_desp_col[r.name] if mask_desp[r.name] and r["_val_desp"] == 0 else r["_val_desp"], axis=1)
+                    if "Receitas" in df_raw.columns:
+                        val_rec_col = df_raw["Receitas"].apply(lambda x: abs(limpar_valor(x)))
+                        df_raw["_val_rec"] = df_raw.apply(
+                            lambda r: val_rec_col[r.name] if mask_rec[r.name] and r["_val_rec"] == 0 else r["_val_rec"], axis=1)
+
+                    df_desp_n = df_raw[mask_desp & (df_raw["_val_desp"] > 0)].copy()
+                    df_rec_n  = df_raw[mask_rec  & (df_raw["_val_rec"]  > 0)].copy()
 
                     n_pd = int(df_desp_n["_foi_pago"].sum()) if not df_desp_n.empty else 0
                     n_pr = int(df_rec_n["_foi_pago"].sum())  if not df_rec_n.empty  else 0

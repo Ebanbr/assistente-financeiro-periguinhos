@@ -1283,24 +1283,40 @@ with tab_import:
 
         st.divider()
         st.markdown("#### 🗑️ Limpar por fonte")
-        st.error("⚠️ Irreversível!")
+        st.warning("⚠️ Operação irreversível. Confira os números antes de confirmar.")
+
         for fonte_nome in ["Notion", "C6 Bank", "Manual"]:
-            key_btn  = f"btn_diag_{fonte_nome}"
-            key_conf = f"conf_diag_{fonte_nome}"
-            if st.button(f"🗑️ Limpar {fonte_nome}", use_container_width=True, key=key_btn):
-                st.session_state[key_conf] = True
-            if st.session_state.get(key_conf):
-                st.warning(f"Confirma exclusão de todos os dados de fonte **{fonte_nome}**?")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Sim, limpar", type="primary", key=f"ok_{key_conf}", use_container_width=True):
-                        n_d = remover_por_fonte("despesas", [fonte_nome])
-                        n_r = remover_por_fonte("receitas",  [fonte_nome])
-                        st.session_state[key_conf] = False
-                        invalidar_cache("despesas"); invalidar_cache("receitas")
-                        mensagem_sucesso(f"✅ {n_d} despesas e {n_r} receitas de {fonte_nome} removidas!")
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key=f"can_{key_conf}", use_container_width=True):
-                        st.session_state[key_conf] = False
-                        st.rerun()
+            n_d_prev = int((df_diag_d["fonte"] == fonte_nome).sum()) if not df_diag_d.empty and "fonte" in df_diag_d.columns else 0
+            n_r_prev = int((df_diag_r["fonte"] == fonte_nome).sum()) if not df_diag_r.empty and "fonte" in df_diag_r.columns else 0
+            total_prev = n_d_prev + n_r_prev
+            if total_prev == 0:
+                continue
+
+            with st.expander(f"🗑️ Limpar **{fonte_nome}** — {n_d_prev} despesas · {n_r_prev} receitas"):
+                col_lp1, col_lp2 = st.columns(2)
+                with col_lp1:
+                    apagar_desp = st.checkbox(f"Despesas ({n_d_prev})", value=True, key=f"chk_d_{fonte_nome}")
+                with col_lp2:
+                    apagar_rec  = st.checkbox(f"Receitas ({n_r_prev})",  value=True, key=f"chk_r_{fonte_nome}")
+
+                key_conf = f"conf_diag_{fonte_nome}"
+                if st.button(f"🗑️ Limpar {fonte_nome}", type="primary", use_container_width=True, key=f"btn_diag_{fonte_nome}"):
+                    st.session_state[key_conf] = True
+
+                if st.session_state.get(key_conf):
+                    st.error(f"**Confirma?** Isso remove permanentemente os dados de {fonte_nome}.")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Sim, apagar", type="primary", key=f"ok_{key_conf}", use_container_width=True):
+                            if apagar_desp:
+                                remover_por_fonte("despesas", [fonte_nome])
+                            if apagar_rec:
+                                remover_por_fonte("receitas", [fonte_nome])
+                            st.session_state[key_conf] = False
+                            invalidar_cache("despesas"); invalidar_cache("receitas")
+                            mensagem_sucesso(f"✅ Dados de {fonte_nome} removidos!")
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key=f"can_{key_conf}", use_container_width=True):
+                            st.session_state[key_conf] = False
+                            st.rerun()

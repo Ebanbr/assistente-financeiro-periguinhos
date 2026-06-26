@@ -1230,8 +1230,19 @@ with tab_import:
                         df_c6["_ano"] = df_c6["_data_ts"].dt.year
                         df_c6["_mes"] = df_c6["_data_ts"].dt.month
 
-                        meses_pres = [(int(a), int(m)) for a, m in df_c6[["_ano","_mes"]].dropna().drop_duplicates().sort_values(["_ano","_mes"]).values.tolist()]
-                        st.markdown(f"**📅 {len(meses_pres)} faturas:** " + ", ".join(f"{MESES_NOME[m-1]}/{a}" for a, m in meses_pres))
+                        meses_pres_todos = [(int(a), int(m)) for a, m in df_c6[["_ano","_mes"]].dropna().drop_duplicates().sort_values(["_ano","_mes"]).values.tolist()]
+
+                        # Filtro de período — essencial para excluir datas de compra de parcelas antigas
+                        st.warning("⚠️ O CSV do C6 usa a **data da compra original** em parcelamentos, não o mês da fatura. Selecione abaixo **apenas os meses das faturas** que você quer importar.")
+                        anos_disp  = sorted(set(a for a, m in meses_pres_todos))
+                        meses_disp = [(a, m) for a, m in meses_pres_todos]
+                        opcoes_str = [f"{MESES_NOME[m-1]}/{a}" for a, m in meses_disp]
+                        sel_str    = st.multiselect("📅 Selecione os meses das faturas a importar:", opcoes_str, default=opcoes_str[-3:] if len(opcoes_str) >= 3 else opcoes_str, key="c6_meses_sel")
+                        sel_set    = {(int(s.split("/")[1]), MESES_NOME.index(s.split("/")[0]) + 1) for s in sel_str}
+                        df_c6      = df_c6[df_c6.apply(lambda r: (int(r["_ano"]), int(r["_mes"])) in sel_set, axis=1)]
+                        meses_pres = [(a, m) for a, m in meses_disp if (a, m) in sel_set]
+
+                        st.markdown(f"**📅 {len(meses_pres)} fatura(s) selecionada(s):** " + ", ".join(f"{MESES_NOME[m-1]}/{a}" for a, m in meses_pres))
 
                         resumo = [{"Mês": f"{MESES_NOME[m-1]}/{a}", "Despesas": formatar_moeda(df_c6[(df_c6["_ano"]==a)&(df_c6["_mes"]==m)&(df_c6["_val"]>0)]["_val"].sum()), "Reembolsos": formatar_moeda(df_c6[(df_c6["_ano"]==a)&(df_c6["_mes"]==m)&(df_c6["_val"]<0)]["_val"].abs().sum()), "Itens": len(df_c6[(df_c6["_ano"]==a)&(df_c6["_mes"]==m)])} for a, m in meses_pres]
                         st.dataframe(pd.DataFrame(resumo), use_container_width=True, hide_index=True)

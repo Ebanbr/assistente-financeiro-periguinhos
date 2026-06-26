@@ -490,13 +490,52 @@ with tab_cats:
                     with st.expander(exp_label, expanded=False):
                         # Lançamentos da categoria
                         if not df_lanc_cat.empty:
-                            cols_show = ["data", "descricao", "valor", "status"]
-                            df_show = df_lanc_cat[cols_show].copy()
-                            df_show["data"]  = pd.to_datetime(df_show["data"], dayfirst=True, errors="coerce").dt.strftime("%d/%m/%Y")
-                            df_show["valor"] = pd.to_numeric(df_show["valor"], errors="coerce").apply(formatar_moeda)
-                            df_show = df_show.sort_values("data", ascending=False)
-                            df_show.columns = ["Data", "Descrição", "Valor", "Status"]
-                            st.dataframe(df_show, use_container_width=True, hide_index=True, height=min(200, 40 + qtd * 36))
+                            cols_ed = ["data", "descricao", "valor", "status", "id"]
+                            df_ce = df_lanc_cat.reindex(columns=cols_ed + ["_tabela_cat"]).copy()
+                            df_ce["_tabela_cat"] = arquivo_cat
+                            df_ce["id"]    = df_ce["id"].astype(str)
+                            df_ce["valor"] = pd.to_numeric(df_ce["valor"], errors="coerce").fillna(0)
+                            # Data: converte para date, fallback para None (editável)
+                            df_ce["data"]  = pd.to_datetime(df_ce["data"], dayfirst=True, errors="coerce").dt.date
+                            df_ce = df_ce.sort_values("data", ascending=False, na_position="last")
+
+                            orig_ids_cat = set(df_ce["id"].tolist())
+
+                            edited_cat = st.data_editor(
+                                df_ce,
+                                column_config={
+                                    "data":        st.column_config.DateColumn("Data",      format="DD/MM/YYYY", width="small"),
+                                    "descricao":   st.column_config.TextColumn("Descrição", width="large"),
+                                    "valor":       st.column_config.NumberColumn("Valor",   format="R$ %.2f", min_value=0),
+                                    "status":      st.column_config.SelectboxColumn("Status", options=STATUS_OPTS, width="small"),
+                                    "id":          st.column_config.TextColumn("ID",        disabled=True, width="small"),
+                                    "_tabela_cat": st.column_config.TextColumn("",          disabled=True, width="small"),
+                                },
+                                column_order=["data", "descricao", "valor", "status", "id"],
+                                hide_index=True,
+                                use_container_width=True,
+                                num_rows="fixed",
+                                height=min(220, 40 + qtd * 36),
+                                key=f"editor_cat_{tipo_cat}_{cat}",
+                            )
+
+                            if st.button("💾 Salvar edições desta categoria", key=f"save_cat_{tipo_cat}_{cat}", use_container_width=True):
+                                df_full = ler_csv(arquivo_cat)
+                                for _, row in edited_cat.iterrows():
+                                    rid = str(row.get("id", ""))
+                                    if not rid or rid not in orig_ids_cat: continue
+                                    nd = row.get("data")
+                                    if isinstance(nd, date): nd = nd.strftime("%Y-%m-%d")
+                                    mask_s = df_full["id"].astype(str) == rid
+                                    if mask_s.any():
+                                        df_full.loc[mask_s, "data"]      = nd
+                                        df_full.loc[mask_s, "descricao"] = str(row.get("descricao", ""))
+                                        df_full.loc[mask_s, "valor"]     = round(float(row.get("valor", 0) or 0), 2)
+                                        df_full.loc[mask_s, "status"]    = str(row.get("status", ""))
+                                salvar_parquet(arquivo_cat, df_full)
+                                st.cache_data.clear()
+                                mensagem_sucesso("✅ Alterações salvas!")
+                                st.rerun()
 
                             # ── Recategorizar ──────────────────────────────
                             st.divider()

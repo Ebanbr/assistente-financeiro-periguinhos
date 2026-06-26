@@ -968,6 +968,19 @@ with tab_import:
                     n_pr = int(df_rec_n["_foi_pago"].sum())  if not df_rec_n.empty  else 0
                     st.markdown(f"📊 **{len(df_desp_n)} despesas** ({n_pd} pagas · {len(df_desp_n)-n_pd} a pagar) | **{len(df_rec_n)} receitas** ({n_pr} recebidas · {len(df_rec_n)-n_pr} a receber)")
 
+                    # ── Debug de datas ────────────────────────────────────
+                    with st.expander("🔍 Verificar datas interpretadas (confirme antes de importar)"):
+                        df_dbg = df_raw[["_nome", "_data"]].copy()
+                        if "Vencimento" in df_raw.columns:
+                            df_dbg["Vencimento (raw)"] = df_raw["Vencimento"].astype(str)
+                        if "Data de PG" in df_raw.columns:
+                            df_dbg["Data PG (raw)"] = df_raw["Data de PG"].astype(str)
+                        df_dbg["Data interpretada"] = df_dbg["_data"].apply(to_br)
+                        df_dbg["Mês"] = pd.to_datetime(df_dbg["_data"], errors="coerce").dt.strftime("%b/%Y")
+                        df_dbg = df_dbg.rename(columns={"_nome": "Nome", "_data": "ISO salvo"})
+                        st.dataframe(df_dbg, use_container_width=True, hide_index=True)
+                        st.caption("'ISO salvo' é o que vai entrar no banco. 'Data interpretada' é como vai aparecer. Se alguma data estiver errada, não confirme a importação.")
+
                     bancos_csv = sorted(df_raw["_banco"].dropna().unique().tolist())
                     cartoes_cad = listar_cartoes_ativos()
                     bancos_exc = st.multiselect("🚫 Excluir bancos/cartões (virão da fatura):", options=bancos_csv, default=[b for b in bancos_csv if b in cartoes_cad])

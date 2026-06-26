@@ -341,51 +341,70 @@ with tab_lanc:
     if not df_view.empty:
         cols_edit = ["_tipo", "data", "descricao", "categoria", "valor", "status", "fonte", "id", "_tabela"]
         df_edit = df_view.reindex(columns=cols_edit).copy()
-        df_edit["data"] = pd.to_datetime(df_edit["data"], errors="coerce").dt.date
-        df_edit["id"]   = df_edit["id"].astype(str)
+        df_edit["data"]     = pd.to_datetime(df_edit["data"], errors="coerce").dt.date
+        df_edit["id"]       = df_edit["id"].astype(str)
+        df_edit["_deletar"] = False  # checkbox de exclusão
 
-        # Guarda referência original para detectar mudanças
         orig_ids_set = set(df_edit["id"].tolist())
 
         edited_df = st.data_editor(
             df_edit,
             column_config={
-                "_tipo":      st.column_config.TextColumn("Tipo",      disabled=True, width="small"),
-                "data":       st.column_config.DateColumn("Data",      format="DD/MM/YYYY", width="small"),
-                "descricao":  st.column_config.TextColumn("Descrição", width="large"),
+                "_deletar":   st.column_config.CheckboxColumn("🗑️",       width="small"),
+                "_tipo":      st.column_config.TextColumn("Tipo",          disabled=True, width="small"),
+                "data":       st.column_config.DateColumn("Data",          format="DD/MM/YYYY", width="small"),
+                "descricao":  st.column_config.TextColumn("Descrição",     width="large"),
                 "categoria":  st.column_config.SelectboxColumn("Categoria", options=ALL_CATS, width="medium"),
-                "valor":      st.column_config.NumberColumn("Valor",   format="R$ %.2f", min_value=0),
-                "status":     st.column_config.SelectboxColumn("Status", options=STATUS_OPTS, width="small"),
-                "fonte":      st.column_config.TextColumn("Fonte",     disabled=True, width="small"),
-                "id":         st.column_config.TextColumn("ID",        disabled=True, width="small"),
-                "_tabela":    st.column_config.TextColumn("Tabela",    disabled=True, width="small"),
+                "valor":      st.column_config.NumberColumn("Valor",       format="R$ %.2f", min_value=0),
+                "status":     st.column_config.SelectboxColumn("Status",   options=STATUS_OPTS, width="small"),
+                "fonte":      st.column_config.TextColumn("Fonte",         disabled=True, width="small"),
+                "id":         st.column_config.TextColumn("ID",            disabled=True, width="small"),
+                "_tabela":    st.column_config.TextColumn("Tabela",        disabled=True, width="small"),
             },
+            column_order=["_deletar", "_tipo", "data", "descricao", "categoria", "valor", "status", "fonte", "id", "_tabela"],
             hide_index=True,
             use_container_width=True,
-            num_rows="dynamic",
+            num_rows="fixed",
             key="data_editor_main",
         )
 
-        if st.button("💾 Salvar Alterações", type="primary", use_container_width=True, key="btn_salvar_edicoes"):
+        n_marcados = int(edited_df["_deletar"].sum()) if not edited_df.empty else 0
+        col_salvar, col_deletar = st.columns([3, 1])
+
+        with col_salvar:
+            btn_salvar = st.button("💾 Salvar Alterações", type="primary", use_container_width=True, key="btn_salvar_edicoes")
+        with col_deletar:
+            btn_deletar = st.button(
+                f"🗑️ Excluir {n_marcados} selecionado(s)" if n_marcados > 0 else "🗑️ Excluir",
+                type="secondary", use_container_width=True, key="btn_excluir_sel",
+                disabled=(n_marcados == 0),
+            )
+
+        if btn_deletar and n_marcados > 0:
+            ids_del = set(edited_df[edited_df["_deletar"] == True]["id"].astype(str).tolist())
+            df_d_s = ler_csv(DESPESAS_FILE)
+            df_r_s = ler_csv(RECEITAS_FILE)
+            df_d_s = df_d_s[~df_d_s["id"].astype(str).isin(ids_del)]
+            df_r_s = df_r_s[~df_r_s["id"].astype(str).isin(ids_del)]
+            salvar_parquet("despesas", df_d_s)
+            salvar_parquet("receitas", df_r_s)
+            st.cache_data.clear()
+            log_atividade("deletou lançamentos", f"{len(ids_del)} via tabela")
+            mensagem_sucesso(f"✅ {len(ids_del)} lançamento(s) excluído(s)!")
+            st.rerun()
+
+        if btn_salvar:
             df_d_save = ler_csv(DESPESAS_FILE)
             df_r_save = ler_csv(RECEITAS_FILE)
 
             if df_d_save.empty: df_d_save = pd.DataFrame(columns=list(COLUNAS_DESPESAS.keys()))
             if df_r_save.empty: df_r_save = pd.DataFrame(columns=list(COLUNAS_RECEITAS.keys()))
 
-            # IDs deletados (estavam no original, sumiram do editor)
-            edited_ids = set(edited_df["id"].dropna().astype(str).tolist()) if not edited_df.empty else set()
-            deleted_ids = orig_ids_set - edited_ids
-
-            if deleted_ids:
-                df_d_save = df_d_save[~df_d_save["id"].astype(str).isin(deleted_ids)]
-                df_r_save = df_r_save[~df_r_save["id"].astype(str).isin(deleted_ids)]
-
-            # Aplica edições
             for _, row in edited_df.iterrows():
+                if row.get("_deletar"): continue  # ignorar marcados para exclusão no save
                 row_id = str(row.get("id", ""))
                 if not row_id or row_id not in orig_ids_set:
-                    continue  # ignora linhas novas (use o formulário acima)
+                    continue
 
                 nova_data = row.get("data")
                 if isinstance(nova_data, date):

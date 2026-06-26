@@ -23,6 +23,12 @@ from utils import (
 )
 from activity_log import registrar as log_atividade
 
+_CHAVES_FORM = ["desc_desp", "desc_rec", "sug_desp", "sug_rec"]
+
+def _limpar_form():
+    for k in _CHAVES_FORM:
+        st.session_state.pop(k, None)
+
 def _sugerir(texto, historico_df, col_desc="descricao", col_cat="categoria", limite=5, score_min=55):
     """Retorna lista de (descricao, categoria) ordenada por similaridade."""
     if not texto or len(texto) < 2 or historico_df.empty:
@@ -162,6 +168,7 @@ if "💸" in tipo:
             salvos = salvar_despesas_novas(pd.DataFrame(linhas))
             if salvos > 0:
                 st.cache_data.clear()
+                _limpar_form()
                 if recorrente:
                     log_atividade("lançou despesa recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} despesa(s) recorrente(s) de {formatar_moeda(valor)} registradas!")
@@ -247,6 +254,7 @@ else:
             salvos = salvar_receitas_novas(pd.DataFrame(linhas))
             if salvos > 0:
                 st.cache_data.clear()
+                _limpar_form()
                 if recorrente:
                     log_atividade("lançou receita recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} receita(s) recorrente(s) de {formatar_moeda(valor)} registradas!")

@@ -185,6 +185,7 @@ with aba_editar:
                         st.session_state["_aplicar_todos_n"]      = len(iguais)
                         st.session_state["_aplicar_todos_tabela"] = tabela
                     else:
+                        st.cache_data.clear()
                         mensagem_sucesso("Alterações salvas!")
                         st.rerun()
                 else:

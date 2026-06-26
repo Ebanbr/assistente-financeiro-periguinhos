@@ -190,6 +190,7 @@ with aba_agenda:
                                 df_full.loc[idx[0], "data"]       = data_pgto.strftime("%Y-%m-%d")
                                 df_full.loc[idx[0], "observacao"] = f"{obs_ant} | Pago em {data_pgto.strftime('%d/%m/%Y')} via {banco_final}".strip(" |")
                                 salvar_parquet("despesas" if is_desp else "receitas", df_full)
+                                st.cache_data.clear()
                                 st.session_state.pop(f"form_baixa_{row['id']}", None)
                                 mensagem_sucesso("Baixa registrada!")
                                 st.rerun()

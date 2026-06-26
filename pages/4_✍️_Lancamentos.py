@@ -127,6 +127,7 @@ if "💸" in tipo:
                 })
             salvos = salvar_despesas_novas(pd.DataFrame(linhas))
             if salvos > 0:
+                st.cache_data.clear()
                 if recorrente:
                     log_atividade("lançou despesa recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} despesa(s) recorrente(s) de {formatar_moeda(valor)} registradas!")
@@ -197,6 +198,7 @@ else:
                 })
             salvos = salvar_receitas_novas(pd.DataFrame(linhas))
             if salvos > 0:
+                st.cache_data.clear()
                 if recorrente:
                     log_atividade("lançou receita recorrente", f"{desc} · {formatar_moeda(valor)} · {salvos}x")
                     mensagem_sucesso(f"{salvos} receita(s) recorrente(s) de {formatar_moeda(valor)} registradas!")

@@ -134,6 +134,10 @@ if "💸" in tipo:
                     log_atividade("lançou despesa", f"{desc} · {formatar_moeda(valor)}")
                     mensagem_sucesso(f"Despesa de {formatar_moeda(valor)} registrada!")
                 st.rerun()
+            elif salvos == 0:
+                mensagem_erro("Lançamento não salvo — já existe um registro com a mesma data e descrição. Mude a descrição ou a data.")
+            elif salvos == -1:
+                mensagem_erro("Falha ao ler os dados existentes (erro de conexão). Tente novamente em alguns segundos.")
 
 # ── RECEITA ──────────────────────────────────────────────────
 else:
@@ -200,6 +204,10 @@ else:
                     log_atividade("lançou receita", f"{desc} · {formatar_moeda(valor)}")
                     mensagem_sucesso(f"Receita de {formatar_moeda(valor)} registrada!")
                 st.rerun()
+            elif salvos == 0:
+                mensagem_erro("Lançamento não salvo — já existe um registro com a mesma data e descrição.")
+            elif salvos == -1:
+                mensagem_erro("Falha ao ler os dados existentes (erro de conexão). Tente novamente em alguns segundos.")
 
 st.markdown("---")
 

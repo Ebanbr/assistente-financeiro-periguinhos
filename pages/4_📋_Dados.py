@@ -458,23 +458,32 @@ with tab_cats:
 
                 for cat in cats:
                     qtd = total = 0
+                    df_lanc_cat = pd.DataFrame()
                     if not df_cat.empty and "categoria" in df_cat.columns:
-                        mask  = df_cat["categoria"] == cat
-                        qtd   = int(mask.sum())
-                        total = pd.to_numeric(df_cat.loc[mask, "valor"], errors="coerce").sum()
+                        mask        = df_cat["categoria"] == cat
+                        qtd         = int(mask.sum())
+                        total       = pd.to_numeric(df_cat.loc[mask, "valor"], errors="coerce").sum()
+                        df_lanc_cat = df_cat[mask].copy()
 
-                    col_nome, col_del = st.columns([5, 1])
-                    with col_nome:
-                        st.markdown(
-                            f"<div style='display:flex;justify-content:space-between;padding:6px 10px;"
-                            f"background:#161B22;border-radius:6px;margin:3px 0;border-left:3px solid {cor}'>"
-                            f"<span style='color:#E6EDF3'>{cat}</span>"
-                            f"<span style='color:#556878;font-size:0.8rem'>{qtd} · {formatar_moeda(total)}</span>"
-                            f"</div>", unsafe_allow_html=True
-                        )
-                    with col_del:
-                        key_d = f"del_cat_{tipo_cat}_{cat}"
-                        if st.button("🗑️", key=key_d):
+                    key_d    = f"del_cat_{tipo_cat}_{cat}"
+                    exp_label = f"{cat}  ·  {qtd} lançamentos  ·  {formatar_moeda(total)}"
+
+                    with st.expander(exp_label, expanded=False):
+                        # Lançamentos da categoria
+                        if not df_lanc_cat.empty:
+                            cols_show = ["data", "descricao", "valor", "status"]
+                            df_show = df_lanc_cat[cols_show].copy()
+                            df_show["data"]  = pd.to_datetime(df_show["data"], dayfirst=True, errors="coerce").dt.strftime("%d/%m/%Y")
+                            df_show["valor"] = pd.to_numeric(df_show["valor"], errors="coerce").apply(formatar_moeda)
+                            df_show = df_show.sort_values("data", ascending=False)
+                            df_show.columns = ["Data", "Descrição", "Valor", "Status"]
+                            st.dataframe(df_show, use_container_width=True, hide_index=True, height=min(200, 40 + qtd * 36))
+                        else:
+                            st.caption("Nenhum lançamento nesta categoria.")
+
+                        st.divider()
+                        # Ação de exclusão
+                        if st.button(f"🗑️ Excluir categoria \"{cat}\"", key=key_d, use_container_width=True):
                             st.session_state[f"conf_{key_d}"] = True
 
                     if st.session_state.get(f"conf_{key_d}"):

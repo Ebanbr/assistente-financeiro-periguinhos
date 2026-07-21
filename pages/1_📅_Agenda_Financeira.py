@@ -7,15 +7,25 @@ import streamlit as st
 
 from auth import exigir_login
 exigir_login()
+import re
 import pandas as pd
-from datetime import date, timedelta
+import plotly.graph_objects as go
+from datetime import date, timedelta, datetime
+from dateutil.relativedelta import relativedelta
 
-from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE
+from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE, CARTOES_FILE
 from utils import (
     configurar_pagina, cabecalho_pagina, inicializar_dados,
     ler_csv, salvar_parquet, formatar_moeda,
-    mensagem_sucesso, mensagem_erro, ler_json, salvar_json, invalidar_cache,
+    mensagem_sucesso, mensagem_erro, mensagem_aviso, ler_json, salvar_json, invalidar_cache,
+    gerar_id, agora, salvar_despesas_novas, listar_categorias,
 )
+
+DARK = dict(paper_bgcolor="#161B22", plot_bgcolor="#161B22",
+            font=dict(color="#8BAFC9", family="Inter", size=12),
+            xaxis=dict(gridcolor="#21262D", linecolor="#30363D"),
+            yaxis=dict(gridcolor="#21262D", linecolor="#30363D"),
+            margin=dict(l=10, r=10, t=40, b=10))
 
 configurar_pagina("Agenda Financeira", icone="📅")
 inicializar_dados()
@@ -89,9 +99,10 @@ if not df_pend.empty:
 
 st.divider()
 
-aba_agenda, aba_semana, aba_saude = st.tabs([
+aba_agenda, aba_semana, aba_fatura, aba_saude = st.tabs([
     "📋 Agenda de Vencimentos",
     "📆 Gastos Semanais",
+    "💳 Fatura do Cartão",
     "🧠 Saúde Financeira",
 ])
 
@@ -132,7 +143,7 @@ with aba_agenda:
                 <div style='color:{cor_saldo};font-size:1.4rem;font-weight:700'>{formatar_moeda(saldo_prev)}</div>
             </div>""", unsafe_allow_html=True)
     else:
-        st.info("Nenhum lançamento pendente. Use **Lançamentos** para agendar.")
+        st.info("Nenhum lançamento pendente. Use **📋 Dados → Lançamentos** para agendar.")
 
     st.divider()
     st.markdown("### 📋 Pendentes por Mês")
@@ -261,6 +272,50 @@ with aba_semana:
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
+    # ── Lançamento rápido do gasto da semana ──────────────────
+    with st.expander("➕ Lançar gasto da semana", expanded=False):
+        with st.form("form_gasto_semana", clear_on_submit=True):
+            cg1, cg2, cg3 = st.columns([2, 2, 1])
+            with cg1:
+                g_desc = st.text_input("Descrição:", placeholder="ex: Padaria")
+                g_data = st.date_input("Data:", value=HOJE, min_value=SEG, max_value=DOM,
+                                       format="DD/MM/YYYY",
+                                       help="Só aceita datas desta semana.")
+            with cg2:
+                _cats_g = listar_categorias("despesa")
+                g_cat  = st.selectbox("Categoria:", _cats_g)
+                g_pag  = st.selectbox("Forma de pagamento:",
+                                      ["💳 Débito", "💳 Crédito", "📱 PIX", "💵 Dinheiro"])
+            with cg3:
+                g_valor = st.number_input("Valor (R$):", min_value=0.0, step=10.0, format="%.2f")
+
+            if st.form_submit_button("💾 Lançar gasto", type="primary", use_container_width=True):
+                if not g_desc.strip():
+                    mensagem_erro("Informe a descrição.")
+                elif g_valor <= 0:
+                    mensagem_erro("Informe um valor maior que zero.")
+                else:
+                    nova = pd.DataFrame([{
+                        "id": gerar_id(),
+                        "data": g_data.strftime("%Y-%m-%d"),
+                        "descricao": g_desc.strip(),
+                        "categoria": g_cat,
+                        "valor": round(float(g_valor), 2),
+                        "forma_pagamento": g_pag,
+                        "banco": "",
+                        "status": "Pago",
+                        "observacao": "",
+                        "fonte": "Manual",
+                        "criado_em": agora(),
+                    }])
+                    n = salvar_despesas_novas(nova)
+                    if n > 0:
+                        invalidar_cache("despesas")
+                        mensagem_sucesso(f"Gasto lançado: {g_desc.strip()} · {formatar_moeda(g_valor)}")
+                        st.rerun()
+                    elif n == 0:
+                        mensagem_aviso("Esse gasto já parece estar lançado (mesma data, descrição e valor).")
+
     st.divider()
 
     # ── Filtrar despesas da semana atual ──────────────────────
@@ -326,7 +381,7 @@ with aba_semana:
 
     # ── Lista de gastos da semana ─────────────────────────────
     if df_semana.empty:
-        st.info("Nenhum gasto lançado nesta semana ainda. Use a página **✍️ Lançamentos** para registrar.")
+        st.info("Nenhum gasto lançado nesta semana ainda. Use **➕ Lançar gasto da semana** acima para registrar.")
     else:
         # Agrupa por dia
         df_semana["_dia"] = df_semana["_data_dt"].dt.date
@@ -362,7 +417,138 @@ with aba_semana:
 
 
 # ════════════════════════════════════════════════════════════
-# ABA 3 — SAÚDE FINANCEIRA
+# ABA 3 — FATURA DO CARTÃO
+# ════════════════════════════════════════════════════════════
+with aba_fatura:
+    st.markdown("### 💳 Fatura do Cartão")
+    st.caption("Fatura atual e futura de cada cartão, com base nos lançamentos registrados.")
+
+    df_cart = ler_csv(CARTOES_FILE)
+    cartoes_disp = []
+    if not df_cart.empty and "nome" in df_cart.columns:
+        if "ativo" in df_cart.columns:
+            _at = df_cart[df_cart["ativo"].astype(str).str.lower().isin(["sim","true","1","s"])]
+        else:
+            _at = df_cart
+        cartoes_disp = _at["nome"].dropna().tolist()
+
+    if not cartoes_disp:
+        st.info("Nenhum cartão cadastrado. Adicione em **📋 Dados → Categorias & Regras → Cartões**.")
+    else:
+        cartao_sel = st.selectbox("Cartão:", cartoes_disp, key="fat_cartao")
+
+        # Dia de fechamento (cadastro → config manual)
+        dia_fech = 10
+        linha_c = df_cart[df_cart["nome"] == cartao_sel]
+        if not linha_c.empty:
+            for col_f in ["dia_fechamento", "dia_vencimento"]:
+                if col_f in linha_c.columns:
+                    try:
+                        dia_fech = int(linha_c.iloc[0][col_f]); break
+                    except: pass
+        try:
+            dia_fech = int(cfg.get("fechamentos_cartoes", {}).get(cartao_sel, dia_fech))
+        except: pass
+        st.caption(f"📅 Dia de fechamento: **{dia_fech}**")
+
+        # Lançamentos deste cartão (por banco ou forma_pagamento)
+        alvo = cartao_sel.strip().lower()
+        mask_c = pd.Series([False] * len(df_d), index=df_d.index)
+        if "banco" in df_d.columns:
+            mask_c = mask_c | df_d["banco"].astype(str).str.strip().str.lower().eq(alvo)
+        if "forma_pagamento" in df_d.columns:
+            mask_c = mask_c | df_d["forma_pagamento"].astype(str).str.strip().str.lower().eq(alvo)
+        df_cartao = df_d[mask_c].copy()
+
+        if df_cartao.empty:
+            st.info(f"Nenhum lançamento encontrado para **{cartao_sel}**.")
+        else:
+            df_cartao["valor"] = pd.to_numeric(df_cartao["valor"], errors="coerce").fillna(0)
+            df_cartao["_dt"] = (df_cartao["data_dt"] if "data_dt" in df_cartao.columns
+                                else pd.to_datetime(df_cartao["data"], errors="coerce"))
+
+            def _mes_fatura(dt, dia):
+                """Compra após o fechamento cai na fatura do mês seguinte."""
+                if pd.isna(dt):
+                    return (0, 0)
+                if dt.day > dia:
+                    prox = dt + relativedelta(months=1)
+                    return (prox.year, prox.month)
+                return (dt.year, dt.month)
+
+            _pares = df_cartao["_dt"].apply(lambda d: _mes_fatura(d, dia_fech))
+            df_cartao["_fat_ano"] = [p[0] for p in _pares]
+            df_cartao["_fat_mes"] = [p[1] for p in _pares]
+            df_cartao = df_cartao[df_cartao["_fat_mes"] > 0]
+
+            if df_cartao.empty:
+                st.info("Lançamentos deste cartão estão sem data válida.")
+            else:
+                faturas = (df_cartao.groupby(["_fat_ano", "_fat_mes"])
+                           .agg(total=("valor", "sum"), qtd=("valor", "count"))
+                           .reset_index().sort_values(["_fat_ano", "_fat_mes"]))
+
+                fat_ano = HOJE.year  if HOJE.day <= dia_fech else (HOJE + relativedelta(months=1)).year
+                fat_mes = HOJE.month if HOJE.day <= dia_fech else (HOJE + relativedelta(months=1)).month
+
+                def _status_fat(r):
+                    if r["_fat_ano"] == fat_ano and r["_fat_mes"] == fat_mes: return "atual"
+                    if (r["_fat_ano"], r["_fat_mes"]) > (fat_ano, fat_mes):   return "futura"
+                    return "fechada"
+                faturas["_status"] = faturas.apply(_status_fat, axis=1)
+
+                tot_atual  = faturas[faturas["_status"] == "atual"]["total"].sum()
+                fut        = faturas[faturas["_status"] == "futura"]
+                tot_futuro = fut["total"].sum()
+
+                k1, k2, k3 = st.columns(3)
+                with k1:
+                    st.markdown(f"""<div style='background:#1a0a0e;border-left:4px solid #FF4D6D;
+                        border-radius:8px;padding:14px 18px;'>
+                        <div style='color:#8BAFC9;font-size:0.8rem'>💳 Fatura Atual</div>
+                        <div style='color:#FF4D6D;font-size:1.4rem;font-weight:700'>{formatar_moeda(tot_atual)}</div>
+                        <div style='color:#556878;font-size:0.78rem'>{MESES_PT[fat_mes-1]}/{fat_ano}</div>
+                    </div>""", unsafe_allow_html=True)
+                with k2:
+                    st.markdown(f"""<div style='background:#0d1117;border-left:4px solid #4A9EFF;
+                        border-radius:8px;padding:14px 18px;'>
+                        <div style='color:#8BAFC9;font-size:0.8rem'>📅 Faturas Futuras</div>
+                        <div style='color:#4A9EFF;font-size:1.4rem;font-weight:700'>{formatar_moeda(tot_futuro)}</div>
+                        <div style='color:#556878;font-size:0.78rem'>{len(fut)} meses à frente</div>
+                    </div>""", unsafe_allow_html=True)
+                with k3:
+                    st.markdown(f"""<div style='background:#0d1117;border-left:4px solid #8B5CF6;
+                        border-radius:8px;padding:14px 18px;'>
+                        <div style='color:#8BAFC9;font-size:0.8rem'>🔄 Parcelas Futuras</div>
+                        <div style='color:#8B5CF6;font-size:1.4rem;font-weight:700'>{int(fut['qtd'].sum())}</div>
+                        <div style='color:#556878;font-size:0.78rem'>lançamentos programados</div>
+                    </div>""", unsafe_allow_html=True)
+
+                st.divider()
+                st.markdown("#### 📆 Faturas por Mês")
+                for _, fat in faturas.iloc[::-1].iterrows():
+                    a_f, m_f = int(fat["_fat_ano"]), int(fat["_fat_mes"])
+                    stt = fat["_status"]
+                    icone, badge = ({"atual":  ("🟡", "ABERTA"),
+                                     "futura": ("🔵", "FUTURA")}.get(stt, ("✅", "FECHADA")))
+                    df_mes = df_cartao[(df_cartao["_fat_ano"] == a_f) & (df_cartao["_fat_mes"] == m_f)]
+
+                    with st.expander(
+                        f"{icone} {MESES_PT[m_f-1]}/{a_f} — {formatar_moeda(fat['total'])} "
+                        f"({int(fat['qtd'])} itens) [{badge}]",
+                        expanded=(stt == "atual")
+                    ):
+                        cols_e = [c for c in ["data","descricao","categoria","valor","fonte"] if c in df_mes.columns]
+                        df_e = df_mes.sort_values("_dt")[cols_e].copy()
+                        df_e["data"]  = pd.to_datetime(df_e["data"], errors="coerce").dt.strftime("%d/%m/%Y")
+                        df_e["valor"] = df_e["valor"].apply(formatar_moeda)
+                        df_e.columns  = [{"data":"Data","descricao":"Descrição","categoria":"Categoria",
+                                          "valor":"Valor","fonte":"Fonte"}[c] for c in cols_e]
+                        st.dataframe(df_e, use_container_width=True, hide_index=True)
+
+
+# ════════════════════════════════════════════════════════════
+# ABA 4 — SAÚDE FINANCEIRA
 # ════════════════════════════════════════════════════════════
 with aba_saude:
     st.markdown("### 🧠 Análise de Saúde Financeira")
@@ -561,4 +747,89 @@ with aba_saude:
     if not alertas and not dicas:
         st.balloons()
         st.success("🎉 Parabéns! Sua saúde financeira está em dia. Continue assim, família Periguinhos!")
+
+    # ── Detalhamento (antes eram as páginas Despesas e Receitas) ──
+    st.divider()
+    st.markdown("#### 🔍 Detalhamento")
+    st.caption("Abra para analisar despesas e receitas por categoria, período e evolução.")
+
+    def _painel(df_base, titulo, cor, chave):
+        """Renderiza um mini-dashboard (KPIs + categorias + evolução + tabela)."""
+        if df_base.empty:
+            st.info(f"Sem {titulo.lower()} registradas.")
+            return
+
+        d = df_base.copy()
+        d["valor"] = pd.to_numeric(d["valor"], errors="coerce").fillna(0)
+        if "data_dt" not in d.columns:
+            d["data_dt"] = pd.to_datetime(d["data"], errors="coerce")
+
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            m_sel = st.selectbox("Mês:", [0] + list(range(1, 13)), index=0,
+                                 format_func=lambda m: "Todos" if m == 0 else MESES_PT[m-1],
+                                 key=f"det_mes_{chave}")
+        with f2:
+            _anos = sorted(d["data_dt"].dt.year.dropna().astype(int).unique().tolist(), reverse=True)
+            a_sel = st.selectbox("Ano:", ["Todos"] + _anos, key=f"det_ano_{chave}")
+        with f3:
+            _cats = sorted(d["categoria"].dropna().unique().tolist()) if "categoria" in d.columns else []
+            c_sel = st.selectbox("Categoria:", ["Todas"] + _cats, key=f"det_cat_{chave}")
+
+        if m_sel > 0:          d = d[d["data_dt"].dt.month == m_sel]
+        if a_sel != "Todos":   d = d[d["data_dt"].dt.year == int(a_sel)]
+        if c_sel != "Todas":   d = d[d["categoria"] == c_sel]
+
+        if d.empty:
+            st.info("Nenhum lançamento com esses filtros.")
+            return
+
+        total = d["valor"].sum()
+        media = d["valor"].mean()
+        maior = d["valor"].max()
+        desc_maior = str(d.loc[d["valor"].idxmax(), "descricao"])[:24] if maior > 0 else "—"
+
+        k1, k2, k3 = st.columns(3)
+        k1.metric(f"Total {titulo}", formatar_moeda(total), f"{len(d)} lançamentos")
+        k2.metric("Ticket médio", formatar_moeda(media))
+        k3.metric("Maior valor", formatar_moeda(maior), desc_maior)
+
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("**Por categoria**")
+            por_cat = (d.groupby("categoria")["valor"].sum()
+                       .sort_values(ascending=False).head(8)
+                       if "categoria" in d.columns else pd.Series(dtype=float))
+            if not por_cat.empty:
+                nomes = [re.sub(r"[^\x00-\x7FÀ-ɏ\s\-]", "", str(n)).strip() for n in por_cat.index]
+                fig = go.Figure(go.Bar(x=por_cat.values, y=nomes, orientation="h",
+                                       marker=dict(color=cor, opacity=0.85)))
+                _lay = {**DARK, "height": 280, "showlegend": False}
+                _lay["yaxis"] = {**DARK["yaxis"], "autorange": "reversed"}
+                fig.update_layout(**_lay)
+                st.plotly_chart(fig, use_container_width=True, key=f"det_cat_fig_{chave}")
+        with g2:
+            st.markdown("**Evolução mensal**")
+            evo = d.groupby(d["data_dt"].dt.to_period("M"))["valor"].sum().reset_index()
+            if not evo.empty:
+                evo["data_dt"] = evo["data_dt"].astype(str)
+                fig2 = go.Figure(go.Bar(x=evo["data_dt"], y=evo["valor"],
+                                        marker_color=cor, opacity=0.85))
+                fig2.update_layout(**DARK, height=280, showlegend=False)
+                st.plotly_chart(fig2, use_container_width=True, key=f"det_evo_fig_{chave}")
+
+        cols_t = [c for c in ["data", "descricao", "categoria", "valor", "status", "fonte"] if c in d.columns]
+        d_ord  = d.sort_values("data_dt", ascending=False).head(200)
+        tab    = d_ord[cols_t].copy()
+        tab["data"]  = d_ord["data_dt"].dt.strftime("%d/%m/%Y").values
+        tab["valor"] = tab["valor"].apply(formatar_moeda)
+        tab.columns  = [{"data":"Data","descricao":"Descrição","categoria":"Categoria",
+                         "valor":"Valor","status":"Status","fonte":"Fonte"}[c] for c in cols_t]
+        st.dataframe(tab, use_container_width=True, hide_index=True, height=340)
+
+    det_d, det_r = st.tabs(["💸 Despesas", "💰 Receitas"])
+    with det_d:
+        _painel(df_d_full, "Despesas", "#FF4D6D", "desp")
+    with det_r:
+        _painel(df_r_full, "Receitas", "#00C953", "rec")
 

@@ -1,6 +1,6 @@
 # ============================================================
-#  4_📋_Dados.py — Central de Dados
-#  Lançamentos · Editar · Importar · Categorias
+#  5_⚙️_Configuracoes.py — Configurações & Dados
+#  Lançamentos · Categorias · Importar · Sistema
 #  Assistente Financeiro da Família Periguinhos 🐧
 # ============================================================
 
@@ -11,6 +11,7 @@ exigir_login()
 
 import pandas as pd
 import re
+import json
 import unicodedata
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
@@ -21,24 +22,24 @@ from rapidfuzz import process, fuzz
 from config import (
     DESPESAS_FILE, RECEITAS_FILE, CARTOES_FILE,
     MAPEAMENTOS_FILE, MESES_PT, MAPEAMENTOS_PADRAO,
-    COLUNAS_DESPESAS, COLUNAS_RECEITAS,
+    COLUNAS_DESPESAS, COLUNAS_RECEITAS, CONFIG_FILE,
 )
 from utils import (
     configurar_pagina, cabecalho_pagina, inicializar_dados,
     ler_csv, salvar_parquet, mensagem_sucesso, mensagem_erro, mensagem_aviso,
-    formatar_moeda, gerar_id, agora,
+    formatar_moeda, gerar_id, agora, ler_json, salvar_json,
     salvar_despesas_novas, salvar_receitas_novas,
     listar_cartoes_ativos, listar_categorias,
     aplicar_mapeamentos, remover_por_fonte, invalidar_cache, adicionar_categoria,
 )
 from activity_log import registrar as log_atividade
 
-configurar_pagina("Dados", icone="📋")
+configurar_pagina("Configurações", icone="⚙️")
 inicializar_dados()
 cabecalho_pagina(
-    titulo="Central de Dados",
-    subtitulo="Lançamentos · Editar · Categorias · Importar",
-    icone="📋",
+    titulo="Configurações",
+    subtitulo="Lançamentos · Categorias · Importar · Sistema",
+    icone="⚙️",
 )
 
 # ══════════════════════════════════════════════════════════════
@@ -120,10 +121,11 @@ _ALL_CATS = sorted(set(_CATS_D + _CATS_R))
 # ABAS PRINCIPAIS
 # ══════════════════════════════════════════════════════════════
 
-tab_lanc, tab_cats, tab_import = st.tabs([
+tab_lanc, tab_cats, tab_import, tab_sistema = st.tabs([
     "📋 Lançamentos",
     "🏷️ Categorias & Regras",
     "📥 Importar",
+    "🔧 Sistema",
 ])
 
 # ══════════════════════════════════════════════════════════════
@@ -1370,3 +1372,112 @@ with tab_import:
                         if st.button("❌ Cancelar", key=f"can_{key_conf}", use_container_width=True):
                             st.session_state[key_conf] = False
                             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 4 — SISTEMA (família · backup · limpeza total)
+# ══════════════════════════════════════════════════════════════
+with tab_sistema:
+    sub_fam, sub_backup, sub_limpar = st.tabs([
+        "👨‍👩‍👧‍👦 Família",
+        "💾 Backup",
+        "🗑️ Limpar Tudo",
+    ])
+
+    _cfg = ler_json(CONFIG_FILE)
+
+    # ── Sub: Família ──────────────────────────────────────────
+    with sub_fam:
+        st.markdown("### 👨‍👩‍👧‍👦 Dados da Família")
+        with st.form("form_familia"):
+            nome_familia = st.text_input("Nome da Família", value=_cfg.get("nome_familia", "Família Periguinhos"))
+            st.markdown("**Membros**")
+            cf1, cf2 = st.columns(2)
+            with cf1:
+                membro1 = st.text_input("Membro 1", value=_cfg.get("membro1", "Bruno"))
+                membro2 = st.text_input("Membro 2", value=_cfg.get("membro2", "Pri"))
+            with cf2:
+                membro3 = st.text_input("Filho(a) 1", value=_cfg.get("membro3", ""))
+                membro4 = st.text_input("Filho(a) 2", value=_cfg.get("membro4", ""))
+            if st.form_submit_button("💾 Salvar", type="primary", use_container_width=True):
+                _cfg.update({"nome_familia": nome_familia, "membro1": membro1,
+                             "membro2": membro2, "membro3": membro3, "membro4": membro4})
+                salvar_json(CONFIG_FILE, _cfg)
+                mensagem_sucesso("Dados da família salvos!")
+
+        st.divider()
+        st.markdown("### 📊 Resumo dos Dados")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("💸 Despesas", len(_DF_DESP) if not _DF_DESP.empty else 0)
+        r2.metric("💰 Receitas", len(_DF_REC)  if not _DF_REC.empty  else 0)
+        r3.metric("💳 Cartões",  len(_DF_CART) if not _DF_CART.empty else 0)
+
+    # ── Sub: Backup ───────────────────────────────────────────
+    with sub_backup:
+        st.markdown("### 💾 Backup dos Dados")
+        cb1, cb2 = st.columns(2)
+
+        with cb1:
+            st.markdown("**📤 Exportar**")
+            _hoje_tag = date.today().strftime("%Y%m%d")
+            for _rotulo, _df_exp in [("Despesas", _DF_DESP), ("Receitas", _DF_REC), ("Cartões", _DF_CART)]:
+                if not _df_exp.empty:
+                    st.download_button(
+                        f"⬇️ {_rotulo} (CSV)",
+                        data=_df_exp.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"{_rotulo.lower()}_backup_{_hoje_tag}.csv",
+                        mime="text/csv", use_container_width=True, key=f"dl_{_rotulo}",
+                    )
+            st.download_button(
+                "⬇️ Configurações (JSON)",
+                data=json.dumps(_cfg, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=f"configuracoes_backup_{_hoje_tag}.json",
+                mime="application/json", use_container_width=True, key="dl_cfg",
+            )
+
+        with cb2:
+            st.markdown("**📥 Restaurar**")
+            st.caption("⚠️ Substitui **todos** os dados da tabela escolhida.")
+            tipo_rest = st.selectbox("Tabela:", ["Despesas", "Receitas", "Cartões"], key="tipo_rest")
+            arq_rest  = st.file_uploader("Arquivo CSV:", type=["csv"], key="restore_up")
+            if arq_rest and st.button("📥 Restaurar", type="primary", use_container_width=True, key="btn_restore"):
+                try:
+                    df_rest = pd.read_csv(StringIO(arq_rest.read().decode("utf-8-sig")))
+                    _mapa = {"Despesas": "despesas", "Receitas": "receitas", "Cartões": "cartoes"}
+                    _tab  = _mapa[tipo_rest]
+                    salvar_parquet(_tab, df_rest)
+                    invalidar_cache(_tab)
+                    log_atividade("restaurou backup", f"{tipo_rest}: {len(df_rest)} registros")
+                    mensagem_sucesso(f"{tipo_rest} restauradas! ({len(df_rest)} registros)")
+                    st.rerun()
+                except Exception as e:
+                    mensagem_erro(f"Erro ao restaurar: {e}")
+
+    # ── Sub: Limpar Tudo ──────────────────────────────────────
+    with sub_limpar:
+        st.markdown("### 🗑️ Limpar Tudo")
+        st.error("⚠️ Apaga a tabela inteira e é irreversível. "
+                 "Para apagar só uma origem (Notion, C6…), use **📥 Importar → Diagnóstico**.")
+
+        for _rot, _tab_nome in [("Despesas", "despesas"), ("Receitas", "receitas")]:
+            _n = len(_DF_DESP if _tab_nome == "despesas" else _DF_REC)
+            _k = f"confirm_del_{_tab_nome}"
+            st.markdown(f"**{_rot}** — {_n} registro(s)")
+            if st.button(f"🗑️ Apagar TODAS as {_rot}", use_container_width=True, key=f"btn_del_{_tab_nome}"):
+                st.session_state[_k] = True
+            if st.session_state.get(_k):
+                st.warning(f"Tem certeza? Isso apagará as **{_n} {_rot.lower()}**.")
+                cd1, cd2 = st.columns(2)
+                with cd1:
+                    if st.button("✅ Sim, apagar", type="primary", key=f"yes_{_tab_nome}", use_container_width=True):
+                        salvar_parquet(_tab_nome, pd.DataFrame())
+                        invalidar_cache(_tab_nome)
+                        st.session_state[_k] = False
+                        log_atividade("apagou tabela", f"{_rot} ({_n} registros)")
+                        mensagem_sucesso(f"{_rot} apagadas.")
+                        st.rerun()
+                with cd2:
+                    if st.button("❌ Cancelar", key=f"no_{_tab_nome}", use_container_width=True):
+                        st.session_state[_k] = False
+                        st.rerun()
+            st.divider()

@@ -143,7 +143,7 @@ with aba_agenda:
                 <div style='color:{cor_saldo};font-size:1.4rem;font-weight:700'>{formatar_moeda(saldo_prev)}</div>
             </div>""", unsafe_allow_html=True)
     else:
-        st.info("Nenhum lançamento pendente. Use **📋 Dados → Lançamentos** para agendar.")
+        st.info("Nenhum lançamento pendente. Use **⚙️ Configurações → Lançamentos** para agendar.")
 
     st.divider()
     st.markdown("### 📋 Pendentes por Mês")
@@ -433,7 +433,7 @@ with aba_fatura:
         cartoes_disp = _at["nome"].dropna().tolist()
 
     if not cartoes_disp:
-        st.info("Nenhum cartão cadastrado. Adicione em **📋 Dados → Categorias & Regras → Cartões**.")
+        st.info("Nenhum cartão cadastrado. Adicione em **⚙️ Configurações → Categorias & Regras → Cartões**.")
     else:
         cartao_sel = st.selectbox("Cartão:", cartoes_disp, key="fat_cartao")
 

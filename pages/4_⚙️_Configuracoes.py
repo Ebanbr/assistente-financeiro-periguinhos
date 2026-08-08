@@ -33,6 +33,7 @@ from utils import (
     aplicar_mapeamentos, remover_por_fonte, invalidar_cache, adicionar_categoria,
 )
 from activity_log import registrar as log_atividade
+import notion_sync
 
 configurar_pagina("Configurações", icone="⚙️")
 inicializar_dados()
@@ -874,12 +875,190 @@ with tab_cats:
 # TAB 3 — IMPORTAR
 # ══════════════════════════════════════════════════════════════
 with tab_import:
-    sub_notion, sub_c6, sub_tmpl, sub_diag = st.tabs([
-        "📓 Notion",
+    sub_napi, sub_notion, sub_c6, sub_tmpl, sub_diag = st.tabs([
+        "🔗 Notion (API)",
+        "📓 Notion (CSV)",
         "💳 C6 Bank",
         "📥 Template",
         "🔍 Diagnóstico",
     ])
+
+    # ── Sub: Notion via API (sincronização direta) ────────────
+    with sub_napi:
+        st.markdown("### 🔗 Notion — Sincronização Direta")
+        st.caption("Puxa os lançamentos direto do Notion via API. As datas vêm em ISO, "
+                   "sem o problema de mês trocado.")
+
+        if not notion_sync.token_configurado():
+            st.warning(
+                "**Token do Notion não configurado.** Adicione ao `secrets.toml` "
+                "(local e no painel do Streamlit Cloud):\n\n"
+                "```toml\n[notion]\ntoken = \"ntn_SEU_TOKEN_NOVO\"\n"
+                "database_id = \"1cdf39c5e18f8067bad1d908a866dbf1\"\n```\n\n"
+                "Depois **conecte a integração ao banco** no Notion "
+                "(menu ••• → Connections)."
+            )
+        else:
+            _sec_n   = dict(st.secrets.get("notion", {}))
+            db_id_in = st.text_input(
+                "ID ou URL do banco de dados:",
+                value=_sec_n.get("database_id", ""),
+                help="Cole a URL do banco ou o ID. Pode deixar fixo no secrets como database_id.",
+            )
+
+            col_i1, col_i2 = st.columns(2)
+
+            # ── Inspecionar esquema ──
+            with col_i1:
+                if st.button("🔎 Inspecionar banco", use_container_width=True, key="btn_insp_notion"):
+                    with st.spinner("Consultando o Notion…"):
+                        info, erro = notion_sync.inspecionar(db_id_in)
+                    if erro:
+                        mensagem_erro(erro)
+                    else:
+                        st.session_state["_notion_insp"] = info
+                        mensagem_sucesso(f"Banco **{info['titulo'] or '(sem título)'}** — "
+                                         f"{len(info['props'])} propriedades encontradas.")
+
+            info = st.session_state.get("_notion_insp")
+            if info:
+                st.markdown("#### 🧩 Propriedades do banco")
+                st.dataframe(
+                    pd.DataFrame(info["props"], columns=["Propriedade", "Tipo"]),
+                    use_container_width=True, hide_index=True,
+                )
+                if info["amostra"]:
+                    st.markdown("#### 👀 Amostra (3 primeiras linhas)")
+                    st.dataframe(pd.DataFrame(info["amostra"]),
+                                 use_container_width=True, hide_index=True)
+
+                nomes_props = [p[0] for p in info["props"]]
+
+                def _palpite(cands, default=None):
+                    for c in cands:
+                        for np_ in nomes_props:
+                            if c.lower() == np_.lower():
+                                return np_
+                    return default or (nomes_props[0] if nomes_props else "")
+
+                st.markdown("#### 🔀 Mapeamento de colunas")
+                st.caption("Confirme qual propriedade do Notion corresponde a cada campo.")
+                mc1, mc2, mc3 = st.columns(3)
+                with mc1:
+                    p_nome = st.selectbox("Descrição (título):", nomes_props,
+                                          index=nomes_props.index(_palpite(["Nome"])) if _palpite(["Nome"]) in nomes_props else 0,
+                                          key="map_nome")
+                    p_venc = st.selectbox("Data (vencimento):", nomes_props,
+                                          index=nomes_props.index(_palpite(["Vencimento","Data"])) if _palpite(["Vencimento","Data"]) in nomes_props else 0,
+                                          key="map_venc")
+                with mc2:
+                    p_valor = st.selectbox("Valor:", nomes_props,
+                                           index=nomes_props.index(_palpite(["Valor"])) if _palpite(["Valor"]) in nomes_props else 0,
+                                           key="map_valor")
+                    p_cat   = st.selectbox("Categoria:", nomes_props,
+                                           index=nomes_props.index(_palpite(["Tipo","Categoria"])) if _palpite(["Tipo","Categoria"]) in nomes_props else 0,
+                                           key="map_cat")
+                with mc3:
+                    p_banco = st.selectbox("Banco/Cartão:", nomes_props,
+                                           index=nomes_props.index(_palpite(["Banco"])) if _palpite(["Banco"]) in nomes_props else 0,
+                                           key="map_banco")
+                    p_pago  = st.selectbox("Pago? (checkbox):", ["(nenhum)"] + nomes_props,
+                                           index=(["(nenhum)"] + nomes_props).index(_palpite(["Pago"])) if _palpite(["Pago"]) in nomes_props else 0,
+                                           key="map_pago")
+                p_recdes = st.selectbox("Receita/Despesa (opcional):", ["(usar sinal do valor)"] + nomes_props,
+                                        index=(["(usar sinal do valor)"] + nomes_props).index(_palpite(["Rec/Des"])) if _palpite(["Rec/Des"]) in nomes_props else 0,
+                                        key="map_recdes")
+
+                st.divider()
+                if st.button("🔄 Buscar e Pré-visualizar", type="primary",
+                             use_container_width=True, key="btn_buscar_notion"):
+                    with st.spinner("Baixando todos os lançamentos do Notion…"):
+                        regs, erro = notion_sync.buscar_registros(db_id_in)
+                    if erro:
+                        mensagem_erro(erro)
+                    elif not regs:
+                        mensagem_aviso("Nenhum registro retornado.")
+                    else:
+                        df_api = pd.DataFrame(regs)
+                        # Monta linhas normalizadas
+                        linhas_d, linhas_r = [], []
+                        for _, r in df_api.iterrows():
+                            desc = str(r.get(p_nome, "")).strip()
+                            data_iso = to_iso(str(r.get(p_venc, "")))
+                            if not desc or not data_iso:
+                                continue
+                            bruto = r.get(p_valor, 0)
+                            # valor pode vir float (API number) ou string formatada
+                            if isinstance(bruto, (int, float)):
+                                sinal_neg = bruto < 0
+                                val = abs(float(bruto))
+                            else:
+                                sinal_neg = "-" in str(bruto)
+                                val = limpar_valor(bruto)
+                            cat = limpar_categoria(limpar_link_notion(r.get(p_cat, "")))
+                            banco = str(r.get(p_banco, "")).strip()
+                            if p_pago != "(nenhum)":
+                                pago = str(r.get(p_pago, "")).lower() in ("true", "yes", "sim", "1", "✅")
+                            else:
+                                pago = True
+                            # tipo
+                            if p_recdes != "(usar sinal do valor)":
+                                td = str(r.get(p_recdes, "")).lower()
+                                eh_receita = "rece" in td or "income" in td or "entrada" in td
+                            else:
+                                eh_receita = not sinal_neg
+                            if val <= 0:
+                                continue
+                            if eh_receita:
+                                linhas_r.append({"id": gerar_id(), "data": data_iso, "descricao": desc,
+                                                 "categoria": limpar_categoria(cat, "📦 Outros"),
+                                                 "valor": round(val, 2), "forma_recebimento": banco or "📱 PIX",
+                                                 "status": "Recebida" if pago else "A Receber",
+                                                 "observacao": "", "fonte": "Notion", "criado_em": agora()})
+                            else:
+                                linhas_d.append({"id": gerar_id(), "data": data_iso, "descricao": desc,
+                                                 "categoria": cat, "valor": round(val, 2),
+                                                 "forma_pagamento": banco or "Outros", "banco": "",
+                                                 "status": "Pago" if pago else "A Pagar",
+                                                 "observacao": "", "fonte": "Notion", "criado_em": agora()})
+                        st.session_state["_notion_preview"] = (linhas_d, linhas_r)
+
+                prev = st.session_state.get("_notion_preview")
+                if prev:
+                    linhas_d, linhas_r = prev
+                    st.markdown(f"**Prévia:** {len(linhas_d)} despesas · {len(linhas_r)} receitas")
+                    cpd, cpr = st.columns(2)
+                    with cpd:
+                        if linhas_d:
+                            dfp = pd.DataFrame(linhas_d)[["data","descricao","categoria","valor"]].head(15)
+                            dfp["data"] = dfp["data"].apply(to_br)
+                            st.dataframe(dfp, use_container_width=True, hide_index=True)
+                    with cpr:
+                        if linhas_r:
+                            dfp = pd.DataFrame(linhas_r)[["data","descricao","categoria","valor"]].head(15)
+                            dfp["data"] = dfp["data"].apply(to_br)
+                            st.dataframe(dfp, use_container_width=True, hide_index=True)
+
+                    if st.button("✅ Confirmar e Gravar (substitui dados Notion)", type="primary",
+                                 use_container_width=True, key="btn_grava_notion"):
+                        remover_por_fonte("despesas", ["Notion"])
+                        remover_por_fonte("receitas", ["Notion"])
+                        td = tr = 0
+                        if linhas_d:
+                            df_ex = ler_csv(DESPESAS_FILE)
+                            df_nd = aplicar_mapeamentos(pd.DataFrame(linhas_d))
+                            salvar_parquet("despesas", pd.concat([df_ex, df_nd], ignore_index=True) if not df_ex.empty else df_nd)
+                            td = len(linhas_d)
+                        if linhas_r:
+                            df_ex = ler_csv(RECEITAS_FILE)
+                            df_nr = aplicar_mapeamentos(pd.DataFrame(linhas_r))
+                            salvar_parquet("receitas", pd.concat([df_ex, df_nr], ignore_index=True) if not df_ex.empty else df_nr)
+                            tr = len(linhas_r)
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
+                        st.session_state.pop("_notion_preview", None)
+                        log_atividade("sincronizou Notion (API)", f"{td} despesas · {tr} receitas")
+                        mensagem_sucesso(f"✅ Sincronizado! {td} despesas e {tr} receitas do Notion.")
+                        st.balloons()
 
     # ── Sub: Notion ───────────────────────────────────────────
     with sub_notion:

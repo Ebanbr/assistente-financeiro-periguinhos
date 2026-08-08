@@ -515,7 +515,7 @@ def fuzzy_match_fatura(df_fatura: pd.DataFrame, df_existente: pd.DataFrame,
       - 'matches': lista de (idx_fatura, idx_existente, score) para log
     """
     try:
-        from rapidfuzz import fuzz
+        from rapidfuzz import fuzz  # type: ignore[import-not-found]
     except ImportError:
         return {"duplicatas": [], "novos": list(range(len(df_fatura))), "matches": []}
 

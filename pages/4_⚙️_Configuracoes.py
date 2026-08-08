@@ -1044,20 +1044,44 @@ with tab_import:
                         remover_por_fonte("despesas", ["Notion"])
                         remover_por_fonte("receitas", ["Notion"])
                         td = tr = 0
-                        if linhas_d:
-                            df_ex = ler_csv(DESPESAS_FILE)
-                            df_nd = aplicar_mapeamentos(pd.DataFrame(linhas_d))
+                        df_ex = ler_csv(DESPESAS_FILE)  # já sem Notion; contém detalhes C6 Bank
+
+                        # Não re-adicionar o resumo de cartão de meses já detalhados por fatura.
+                        detalhados = set()
+                        if not df_ex.empty and "fonte" in df_ex.columns:
+                            _c6 = df_ex[df_ex["fonte"].astype(str) == "C6 Bank"]
+                            for _, rr in _c6.iterrows():
+                                card = str(rr.get("banco","")).strip().lower() or str(rr.get("forma_pagamento","")).strip().lower()
+                                mes  = str(rr.get("data",""))[:7]
+                                if card and mes:
+                                    detalhados.add((card, mes))
+
+                        linhas_d_final, pulados = [], 0
+                        for ln in linhas_d:
+                            eh_resumo = "cart" in str(ln.get("categoria","")).lower()
+                            card = str(ln.get("forma_pagamento","")).strip().lower()
+                            mes  = str(ln.get("data",""))[:7]
+                            if eh_resumo and (card, mes) in detalhados:
+                                pulados += 1
+                                continue
+                            linhas_d_final.append(ln)
+
+                        if linhas_d_final:
+                            df_nd = aplicar_mapeamentos(pd.DataFrame(linhas_d_final))
                             salvar_parquet("despesas", pd.concat([df_ex, df_nd], ignore_index=True) if not df_ex.empty else df_nd)
-                            td = len(linhas_d)
+                            td = len(linhas_d_final)
                         if linhas_r:
-                            df_ex = ler_csv(RECEITAS_FILE)
+                            df_exr = ler_csv(RECEITAS_FILE)
                             df_nr = aplicar_mapeamentos(pd.DataFrame(linhas_r))
-                            salvar_parquet("receitas", pd.concat([df_ex, df_nr], ignore_index=True) if not df_ex.empty else df_nr)
+                            salvar_parquet("receitas", pd.concat([df_exr, df_nr], ignore_index=True) if not df_exr.empty else df_nr)
                             tr = len(linhas_r)
                         invalidar_cache("despesas"); invalidar_cache("receitas")
                         st.session_state.pop("_notion_preview", None)
-                        log_atividade("sincronizou Notion (API)", f"{td} despesas · {tr} receitas")
-                        mensagem_sucesso(f"✅ Sincronizado! {td} despesas e {tr} receitas do Notion.")
+                        log_atividade("sincronizou Notion (API)", f"{td} despesas · {tr} receitas · {pulados} resumos pulados")
+                        msg = f"✅ Sincronizado! {td} despesas e {tr} receitas do Notion."
+                        if pulados:
+                            msg += f" ({pulados} resumo(s) de cartão pulado(s) — mês já detalhado pela fatura.)"
+                        mensagem_sucesso(msg)
                         st.balloons()
 
     # ── Sub: Notion ───────────────────────────────────────────

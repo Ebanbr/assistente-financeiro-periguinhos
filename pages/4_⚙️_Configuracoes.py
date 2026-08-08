@@ -894,7 +894,7 @@ with tab_import:
                 "**Token do Notion não configurado.** Adicione ao `secrets.toml` "
                 "(local e no painel do Streamlit Cloud):\n\n"
                 "```toml\n[notion]\ntoken = \"ntn_SEU_TOKEN_NOVO\"\n"
-                "database_id = \"1cdf39c5e18f8067bad1d908a866dbf1\"\n```\n\n"
+                "database_id = \"1eaf39c5e18f80a38c35eeed154715b8\"\n```\n\n"
                 "Depois **conecte a integração ao banco** no Notion "
                 "(menu ••• → Connections)."
             )

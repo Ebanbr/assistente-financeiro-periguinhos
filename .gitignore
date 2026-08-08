@@ -17,3 +17,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Backups locais da migracao Notion (contem dados financeiros)
+backups_notion_migracao/

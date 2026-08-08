@@ -1326,32 +1326,44 @@ with tab_import:
                     })
 
                 if resumo_geral:
+                    # Identifica o que será substituído em cada mês:
+                    #  (a) provisórios manuais do cartão  (b) resumo mensal "Cartões" vindo do Notion
                     prov_por_fat = {}
+                    alvo_cartao = cartao_sel.strip().lower()
                     for (mes_f, ano_f) in faturas_dados:
-                        if not df_hist_c6.empty and "fonte" in df_hist_c6.columns:
-                            mask_p = (
-                                (df_hist_c6["fonte"].astype(str) == "Manual") &
-                                (~df_hist_c6.get("forma_pagamento", pd.Series(dtype=str)).astype(str).str.contains("PIX|Pix|pix", na=False)) &
-                                (df_hist_c6.get("banco", pd.Series(dtype=str)).astype(str).str.strip().str.lower() == cartao_sel.strip().lower()) &
-                                (pd.to_datetime(df_hist_c6["data"], dayfirst=True, errors="coerce").dt.month == mes_f) &
-                                (pd.to_datetime(df_hist_c6["data"], dayfirst=True, errors="coerce").dt.year  == ano_f)
-                            )
-                            prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_p]
-                        else:
+                        if df_hist_c6.empty or "fonte" not in df_hist_c6.columns:
                             prov_por_fat[(mes_f, ano_f)] = pd.DataFrame()
+                            continue
+                        _dt  = pd.to_datetime(df_hist_c6["data"], errors="coerce")  # data já é ISO
+                        _fp  = df_hist_c6.get("forma_pagamento", pd.Series("", index=df_hist_c6.index)).astype(str).str.strip().str.lower()
+                        _bk  = df_hist_c6.get("banco", pd.Series("", index=df_hist_c6.index)).astype(str).str.strip().str.lower()
+                        _cat = df_hist_c6.get("categoria", pd.Series("", index=df_hist_c6.index)).astype(str)
+                        _fon = df_hist_c6["fonte"].astype(str)
+                        mes_ok  = (_dt.dt.month == mes_f) & (_dt.dt.year == ano_f)
+                        card_ok = (_fp == alvo_cartao) | (_bk == alvo_cartao)
+                        # (a) provisório manual (não-PIX) do cartão
+                        mask_manual = (_fon == "Manual") & (~_fp.str.contains("pix", na=False)) & (_bk == alvo_cartao) & mes_ok
+                        # (b) resumo/lump do Notion: categoria "Cartões" desse cartão, no mês
+                        mask_lump   = (_fon == "Notion") & (_cat.str.contains("Cart", case=False, na=False)) & card_ok & mes_ok
+                        prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_manual | mask_lump]
 
                     for r in resumo_geral:
                         mn = MESES_NOME.index(r["Fatura"].split("/")[0]) + 1
                         an = int(r["Fatura"].split("/")[1])
-                        n  = len(prov_por_fat.get((mn, an), pd.DataFrame()))
-                        r["Provisórios"] = f"🗑️ {n}" if n > 0 else "—"
+                        sub_rem = prov_por_fat.get((mn, an), pd.DataFrame())
+                        val_rem = pd.to_numeric(sub_rem["valor"], errors="coerce").sum() if not sub_rem.empty else 0
+                        r["Resumo substituído"] = formatar_moeda(val_rem) if not sub_rem.empty else "—"
 
                     st.markdown("#### 📋 Resumo")
+                    st.caption("**Despesas** = total itemizado da fatura importada · "
+                               "**Resumo substituído** = o lançamento-resumo do Notion daquele mês que sai no lugar. "
+                               "Os dois devem bater aproximadamente.")
                     st.dataframe(pd.DataFrame(resumo_geral), use_container_width=True, hide_index=True)
 
                     total_prov = sum(len(v) for v in prov_por_fat.values())
                     if total_prov:
-                        st.warning(f"🗑️ **{total_prov} lançamento(s) manual(is) provisório(s)** de **{cartao_sel}** serão substituídos.")
+                        st.warning(f"🔄 **{total_prov} lançamento(s)** de **{cartao_sel}** (resumo do mês) serão "
+                                   f"substituídos pelo detalhamento da fatura. Nenhuma outra despesa é tocada.")
 
                     if st.button("✅ Confirmar e Importar", type="primary", use_container_width=True, key="btn_c6_multi"):
                         total_d = total_r = total_rem = 0
@@ -1388,8 +1400,8 @@ with tab_import:
                             salvar_parquet("despesas", df_desp_full)
                             invalidar_cache("despesas"); invalidar_cache("receitas")
 
-                        log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d} despesas · {total_rem} provisórios removidos")
-                        mensagem_sucesso(f"✅ {total_d} despesas · {total_rem} provisórios substituídos!")
+                        log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d} despesas · {total_rem} resumos substituídos")
+                        mensagem_sucesso(f"✅ {total_d} despesas detalhadas · {total_rem} resumo(s) do cartão substituído(s)!")
                         st.balloons()
 
         else:  # CSV unificado

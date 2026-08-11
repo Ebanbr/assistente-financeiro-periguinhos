@@ -48,11 +48,21 @@ if st.sidebar.button("🚪 Sair", use_container_width=True):
 st.sidebar.divider()
 
 # ── Dados ────────────────────────────────────────────────────
-df_d = ler_csv(DESPESAS_FILE)
+df_d_all = ler_csv(DESPESAS_FILE)
 df_r = ler_csv(RECEITAS_FILE)
-for _df in (df_d, df_r):
+for _df in (df_d_all, df_r):
     if not _df.empty and "valor" in _df.columns:
         _df["valor"] = pd.to_numeric(_df["valor"], errors="coerce").fillna(0)
+
+# Gastos semanais (fonte "Semanal") são uma ferramenta à parte — NÃO entram no
+# macro do dashboard (que reflete o Notion + faturas), só no tile "Esta semana".
+if not df_d_all.empty and "fonte" in df_d_all.columns:
+    _mask_sem = df_d_all["fonte"].astype(str) == "Semanal"
+    df_semanal = df_d_all[_mask_sem].copy()
+    df_d = df_d_all[~_mask_sem].copy()
+else:
+    df_semanal = pd.DataFrame()
+    df_d = df_d_all
 
 # ── Filtro de período ────────────────────────────────────────
 st.sidebar.markdown("### 🎛️ Período")
@@ -253,12 +263,12 @@ else:             s_lab, s_col, s_bg, s_bd = "Crítica", DESPESA, "#FF5C7a14", "
 CIRC = 257.6
 dash_off = CIRC * (1 - score / 100)
 
-# Semana atual
+# Semana atual — lê os gastos semanais (fonte "Semanal"), independentes do macro
 hoje = date.today()
 seg = hoje - timedelta(days=hoje.weekday()); dom = seg + timedelta(days=6)
 gasto_sem = 0.0
-if not df_d.empty and "data_dt" in df_d.columns:
-    wk = df_d[(df_d["data_dt"].dt.date >= seg) & (df_d["data_dt"].dt.date <= dom)]
+if not df_semanal.empty and "data_dt" in df_semanal.columns:
+    wk = df_semanal[(df_semanal["data_dt"].dt.date >= seg) & (df_semanal["data_dt"].dt.date <= dom)]
     gasto_sem = wk["valor"].sum()
 cfg = ler_json(str(CONFIG_FILE)); limite_sem = float(cfg.get("limite_semanal", 0) or 0)
 
@@ -313,8 +323,8 @@ with s2:
     else:
         st.markdown(f"""<div class="panel">
           <div class="num" style="color:var(--txt-hi);font-weight:800;font-size:20px">{formatar_moeda(gasto_sem)}</div>
-          <div class="muted">Gasto de {seg.strftime('%d/%m')} a {dom.strftime('%d/%m')}. Defina um limite semanal em
-          <b>Agenda → Gastos Semanais</b>.</div>
+          <div class="muted">Gasto de {seg.strftime('%d/%m')} a {dom.strftime('%d/%m')}. Defina um limite na página
+          <b>📆 Gastos Semanais</b>.</div>
         </div>""", unsafe_allow_html=True)
 
 with s3:

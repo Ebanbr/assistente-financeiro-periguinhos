@@ -1090,7 +1090,7 @@ with tab_import:
         st.info(
             "Importa histórico completo do Notion.\n\n"
             "- **Pago + Valor Pago** → *Pago/Recebida*\n"
-            "- **Não pago** → *A Pagar/A Receber* (aparece na Agenda)\n\n"
+            "- **Não pago** → *A Pagar/A Receber*\n\n"
             "Re-importar **substitui apenas dados do Notion** — C6 e Manuais preservados."
         )
 

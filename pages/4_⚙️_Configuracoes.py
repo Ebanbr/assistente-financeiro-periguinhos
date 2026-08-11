@@ -1301,6 +1301,8 @@ with tab_import:
                     "O mês é detectado pelo nome do arquivo — confira na tabela antes de importar.")
             arquivos_c6 = st.file_uploader("Faturas C6 (.csv ou .zip)", type=["csv", "zip"],
                                            key="c6_up", accept_multiple_files=True)
+            senha_zip = st.text_input("🔑 Senha dos .zip (se tiverem):", type="password", key="c6_zip_pwd",
+                                      help="A senha NÃO é salva — some ao recarregar a página.")
 
             if arquivos_c6:
                 df_hist_c6 = ler_csv(DESPESAS_FILE)
@@ -1309,19 +1311,34 @@ with tab_import:
                     df_hist_c6["categoria"] = df_hist_c6["categoria"].astype(str)
                     cat_hist_c6 = df_hist_c6[~df_hist_c6["categoria"].str.contains("Outros", na=False)].groupby("descricao")["categoria"].agg(lambda x: x.value_counts().index[0]).to_dict()
 
-                def _extrair_csv(arq):
-                    """Retorna (nome_interno, bytes_csv, erro). Aceita .csv direto ou .zip com CSV dentro."""
+                def _abrir_zip(dados):
+                    """Abre zip com suporte a AES (pyzipper) ou ZipCrypto (zipfile padrão)."""
+                    try:
+                        import pyzipper
+                        return pyzipper.AESZipFile(BytesIO(dados))
+                    except ImportError:
+                        return zipfile.ZipFile(BytesIO(dados))
+
+                def _extrair_csv(arq, senha):
+                    """Retorna (nome_interno, bytes_csv, erro). Aceita .csv ou .zip (com/sem senha)."""
                     dados = arq.getvalue()
-                    if arq.name.lower().endswith(".zip"):
-                        try:
-                            zf = zipfile.ZipFile(BytesIO(dados))
-                            csvs = [m for m in zf.namelist() if m.lower().endswith(".csv")]
-                            if not csvs:
-                                return arq.name, None, "sem CSV dentro do .zip"
-                            return csvs[0], zf.read(csvs[0]), None
-                        except Exception as e:
-                            return arq.name, None, f".zip inválido: {e}"
-                    return arq.name, dados, None
+                    if not arq.name.lower().endswith(".zip"):
+                        return arq.name, dados, None
+                    try:
+                        zf = _abrir_zip(dados)
+                        if senha:
+                            zf.setpassword(senha.encode("utf-8"))
+                        csvs = [m for m in zf.namelist() if m.lower().endswith(".csv")]
+                        if not csvs:
+                            return arq.name, None, "sem CSV dentro do .zip"
+                        return csvs[0], zf.read(csvs[0]), None
+                    except RuntimeError as e:
+                        msg = str(e).lower()
+                        if "password" in msg or "encrypted" in msg or "bad pass" in msg:
+                            return arq.name, None, "protegido por senha — informe a senha correta no campo acima"
+                        return arq.name, None, f".zip: {e}"
+                    except Exception as e:
+                        return arq.name, None, f".zip inválido: {e}"
 
                 def _detect_mes_ano(*nomes):
                     """Detecta (mes, ano) pelo nome (padrão Fatura_AAAA-MM-DD e variações)."""
@@ -1360,7 +1377,7 @@ with tab_import:
                 # Extrai + parseia + detecta o mês de cada arquivo
                 itens = []
                 for arq in arquivos_c6:
-                    nome_int, csv_bytes, err = _extrair_csv(arq)
+                    nome_int, csv_bytes, err = _extrair_csv(arq, senha_zip)
                     if err: st.error(f"`{arq.name}`: {err}"); continue
                     desp, devol, err2 = _proc_csv(csv_bytes)
                     if err2: st.error(f"`{arq.name}`: {err2}"); continue

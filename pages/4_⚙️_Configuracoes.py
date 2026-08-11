@@ -1448,19 +1448,28 @@ with tab_import:
                         mask_lump   = (_fon == "Notion") & (_cat.str.contains("Cart", case=False, na=False)) & card_ok & mes_ok
                         prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_manual | mask_lump]
 
-                    # Sanity check: total itemizado das faturas ≈ total do resumo Notion que sai
-                    total_itemizado = sum(it["total"] for it in itens)
-                    total_replaced  = sum(pd.to_numeric(v["valor"], errors="coerce").sum()
-                                          for v in prov_por_fat.values() if not v.empty)
-                    cM1, cM2 = st.columns(2)
-                    cM1.metric("💳 Total itemizado (faturas)", formatar_moeda(total_itemizado))
-                    cM2.metric("🔄 Resumo Notion a substituir", formatar_moeda(total_replaced))
-                    st.caption("Os dois devem bater aproximadamente — se baterem, importar não duplica nem perde valor.")
+                    # Separa: meses que JÁ têm resumo no Notion (substituem, sem duplicar)
+                    #         vs meses que o Notion não tinha (histórico novo)
+                    itemizado_uni = sum((v[0]["_valor"].sum() if not v[0].empty else 0) for v in faturas_dados.values())
+                    sub_meses  = [k for k, v in prov_por_fat.items() if not v.empty]
+                    sub_item   = sum((faturas_dados[k][0]["_valor"].sum() if not faturas_dados[k][0].empty else 0) for k in sub_meses)
+                    sub_resumo = sum(pd.to_numeric(prov_por_fat[k]["valor"], errors="coerce").sum() for k in sub_meses)
+                    novo_meses = [k for k in faturas_dados if k not in sub_meses]
+                    novo_valor = itemizado_uni - sub_item
 
-                    total_prov = sum(len(v) for v in prov_por_fat.values())
-                    if total_prov:
-                        st.warning(f"🔄 **{total_prov} lançamento(s)** de **{cartao_sel}** (resumo do mês) serão "
-                                   f"substituídos pelo detalhamento da fatura. Nenhuma outra despesa é tocada.")
+                    st.markdown("#### 📋 O que vai acontecer ao importar")
+                    cM1, cM2 = st.columns(2)
+                    with cM1:
+                        st.metric(f"🔄 Substituem resumo · {len(sub_meses)} meses", formatar_moeda(sub_item),
+                                  delta=f"trocam {formatar_moeda(sub_resumo)} de resumo", delta_color="off")
+                        st.caption("Meses que já tinham *'Cartão C6 Bru'* no Notion: o resumo sai, entra o detalhe. **Não duplica.**")
+                    with cM2:
+                        st.metric(f"➕ Histórico novo · {len(novo_meses)} meses", formatar_moeda(novo_valor))
+                        st.caption("Meses que o Notion não tinha (ex.: 2024): entram como detalhe novo. **Nada é substituído.**")
+                    if sub_item > 0 and abs(sub_item - sub_resumo) > sub_resumo * 0.15:
+                        st.warning(f"⚠️ Nos meses que substituem, o detalhe ({formatar_moeda(sub_item)}) e o resumo do Notion "
+                                   f"({formatar_moeda(sub_resumo)}) diferem bastante. Confira se o **cartão** ({cartao_sel}) e os "
+                                   f"**meses** estão certos antes de confirmar.")
 
                     if st.button("✅ Confirmar e Importar", type="primary", use_container_width=True, key="btn_c6_multi"):
                         total_d = total_r = total_rem = 0

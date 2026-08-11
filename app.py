@@ -273,15 +273,27 @@ if not df_semanal.empty and "data_dt" in df_semanal.columns:
     gasto_sem = wk["valor"].sum()
 cfg = ler_json(str(CONFIG_FILE)); limite_sem = float(cfg.get("limite_semanal", 0) or 0)
 
-# Fatura C6 Bru — mês corrente
-def _is_c6bru(df):
+# Fatura C6 Bru — mês corrente.
+# A fatura = detalhe importado (fonte C6 Bank) OU o resumo do Notion (categoria "Cartões").
+# NÃO inclui despesas do Notion apenas marcadas como C6 BRU (Madre de Deus, Unimed…),
+# que não fazem parte da fatura do cartão.
+def _fatura_c6bru(df):
     fp = df.get("forma_pagamento", pd.Series("", index=df.index)).astype(str).str.upper().str.strip()
     bk = df.get("banco", pd.Series("", index=df.index)).astype(str).str.upper().str.strip()
-    return (fp == "C6 BRU") | (bk == "C6 BRU")
+    fon = df.get("fonte", pd.Series("", index=df.index)).astype(str)
+    cat = df.get("categoria", pd.Series("", index=df.index)).astype(str)
+    c6 = (fp == "C6 BRU") | (bk == "C6 BRU")
+    return c6 & ((fon == "C6 Bank") | ((fon == "Notion") & cat.str.contains("Cart", case=False, na=False)))
 fat_c6 = pd.DataFrame()
 if not df_d.empty and "data_dt" in df_d.columns:
-    fat_c6 = df_d[_is_c6bru(df_d) & (df_d["data_dt"].dt.month == hoje.month) & (df_d["data_dt"].dt.year == hoje.year)]
-total_fat = fat_c6["valor"].sum() if not fat_c6.empty else 0
+    fat_c6 = df_d[_fatura_c6bru(df_d) & (df_d["data_dt"].dt.month == hoje.month) & (df_d["data_dt"].dt.year == hoje.year)]
+# Reembolsos do C6 no mês (receitas fonte C6 Bank) abatem a fatura
+_reemb_c6 = 0.0
+if not df_r.empty and "data_dt" in df_r.columns and "fonte" in df_r.columns:
+    _rc = df_r[(df_r["fonte"].astype(str) == "C6 Bank") &
+               (df_r["data_dt"].dt.month == hoje.month) & (df_r["data_dt"].dt.year == hoje.year)]
+    _reemb_c6 = _rc["valor"].sum()
+total_fat = (fat_c6["valor"].sum() if not fat_c6.empty else 0) - _reemb_c6
 
 s1, s2, s3 = st.columns(3)
 

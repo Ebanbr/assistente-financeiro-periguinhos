@@ -10,8 +10,9 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from pathlib import Path
 
-from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE
-from utils import ler_csv, formatar_moeda, ler_json
+from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE, MAPEAMENTOS_FILE
+from utils import (ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
+                   listar_categorias, invalidar_cache, mensagem_sucesso)
 from auth import login_page, usuario_logado, logout
 
 # ── Login ─────────────────────────────────────────────────────
@@ -354,6 +355,61 @@ with st.expander("📑 Top lançamentos do período"):
         st.markdown("**🔵 Maiores receitas**")
         _tabela_detalhe(df_rf) if not df_rf.empty else st.caption("Sem receitas.")
 
+# ══════════════════════════════════════════════════════════════
+# CATEGORIZAR "OUTROS" (recategoriza + cria regra p/ o futuro)
+# ══════════════════════════════════════════════════════════════
+_out = df_d[df_d["categoria"].astype(str).str.contains("Outros", case=False, na=False)] if not df_d.empty else pd.DataFrame()
+if not _out.empty:
+    _tot_out = _out["valor"].sum()
+    with st.expander(f"🏷️ Categorizar gastos em 'Outros'  ·  {len(_out)} lançamentos · {formatar_moeda(_tot_out)}"):
+        st.caption("Escolha a categoria de cada estabelecimento. Ao salvar, recategoriza **todos** os lançamentos "
+                   "daquele nome **e cria uma regra** pra categorizar sozinho nas próximas importações.")
+        _g = (_out.groupby("descricao")["valor"].agg(Total="sum", Lancs="count")
+              .reset_index().sort_values("Total", ascending=False).head(50))
+        _g["Nova categoria"] = ""
+        _g = _g.rename(columns={"descricao": "Estabelecimento"})
+        _g["Total"] = _g["Total"].round(2)
+
+        _cats = [""] + sorted(set(listar_categorias("despesa")))
+        _ed = st.data_editor(
+            _g[["Estabelecimento", "Lancs", "Total", "Nova categoria"]],
+            column_config={
+                "Estabelecimento": st.column_config.TextColumn("Estabelecimento", disabled=True, width="large"),
+                "Lancs": st.column_config.NumberColumn("Qtd", disabled=True, width="small"),
+                "Total": st.column_config.NumberColumn("Total", format="R$ %.2f", disabled=True),
+                "Nova categoria": st.column_config.SelectboxColumn("→ Categoria", options=_cats, width="medium"),
+            },
+            hide_index=True, use_container_width=True, num_rows="fixed", key="cat_outros_editor", height=400,
+        )
+        _criar_regra = st.checkbox("Criar regra pra categorizar isso automaticamente no futuro", value=True, key="cat_criar_regra")
+        if st.button("💾 Salvar categorização", type="primary", use_container_width=True, key="btn_cat_outros"):
+            _atrib = _ed[_ed["Nova categoria"].astype(str).str.strip() != ""]
+            if _atrib.empty:
+                st.warning("Escolha ao menos uma categoria.")
+            else:
+                _dfull = ler_csv(DESPESAS_FILE)
+                _n = 0
+                for _, _r in _atrib.iterrows():
+                    _est = str(_r["Estabelecimento"]); _cat = str(_r["Nova categoria"])
+                    _m = _dfull["descricao"].astype(str) == _est
+                    _n += int(_m.sum())
+                    _dfull.loc[_m, "categoria"] = _cat
+                salvar_parquet("despesas", _dfull)
+                # cria regras
+                _nr = 0
+                if _criar_regra:
+                    _reg = ler_csv(MAPEAMENTOS_FILE)
+                    _novas = [{"id": gerar_id(), "padrao": str(_r["Estabelecimento"]),
+                               "categoria": str(_r["Nova categoria"]), "tipo": "despesa"}
+                              for _, _r in _atrib.iterrows()]
+                    _reg = pd.concat([_reg, pd.DataFrame(_novas)], ignore_index=True) if not _reg.empty else pd.DataFrame(_novas)
+                    salvar_parquet("mapeamentos", _reg)
+                    _nr = len(_novas)
+                invalidar_cache("despesas"); invalidar_cache("mapeamentos")
+                mensagem_sucesso(f"✅ {_n} lançamento(s) recategorizados" + (f" · {_nr} regra(s) criada(s)!" if _nr else "!"))
+                st.rerun()
+
+st.divider()
 st.markdown(
     "<p style='text-align:center;color:#2A3A58;font-size:0.75rem;margin-top:14px'>"
     f"🐧 {APP_NOME} · tema Ártico ❄️"

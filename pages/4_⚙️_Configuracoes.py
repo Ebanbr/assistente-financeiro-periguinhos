@@ -12,10 +12,11 @@ exigir_login()
 import pandas as pd
 import re
 import json
+import zipfile
 import unicodedata
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-from io import StringIO
+from io import StringIO, BytesIO
 
 from rapidfuzz import process, fuzz
 
@@ -1296,31 +1297,51 @@ with tab_import:
         modo = st.radio("Modo:", ["📄 Fatura única (1 mês)", "📦 CSV unificado (múltiplos meses)"], horizontal=True, key="modo_c6")
 
         if modo == "📄 Fatura única (1 mês)":
-            st.info("Envie um ou mais CSVs — cada um é uma fatura de um mês.")
-            arquivos_c6 = st.file_uploader("CSVs de fatura C6 (sep por ;)", type=["csv"], key="c6_up", accept_multiple_files=True)
+            st.info("Envie as faturas em **.csv ou .zip** (pode mandar as 32 de uma vez). "
+                    "O mês é detectado pelo nome do arquivo — confira na tabela antes de importar.")
+            arquivos_c6 = st.file_uploader("Faturas C6 (.csv ou .zip)", type=["csv", "zip"],
+                                           key="c6_up", accept_multiple_files=True)
 
             if arquivos_c6:
-                configs_fat = []
-                for idx_a, arq in enumerate(arquivos_c6):
-                    with st.expander(f"📄 `{arq.name}`", expanded=True):
-                        col_m, col_a = st.columns(2)
-                        with col_m: mes_a = st.selectbox("Mês:", range(1,13), index=datetime.now().month-1, format_func=lambda m: MESES_NOME[m-1], key=f"mes_fat_{idx_a}")
-                        with col_a: ano_a = st.selectbox("Ano:", range(2024,2029), index=1, key=f"ano_fat_{idx_a}")
-                    configs_fat.append((arq, mes_a, ano_a))
-
                 df_hist_c6 = ler_csv(DESPESAS_FILE)
                 cat_hist_c6 = {}
                 if not df_hist_c6.empty and "descricao" in df_hist_c6.columns:
                     df_hist_c6["categoria"] = df_hist_c6["categoria"].astype(str)
                     cat_hist_c6 = df_hist_c6[~df_hist_c6["categoria"].str.contains("Outros", na=False)].groupby("descricao")["categoria"].agg(lambda x: x.value_counts().index[0]).to_dict()
 
-                def _proc_csv(arq, mes_f, ano_f):
-                    arq.seek(0)
-                    df = pd.read_csv(StringIO(arq.read().decode("utf-8-sig")), sep=";")
-                    req = ["Data de Compra","Descrição","Categoria","Valor (em R$)"]
+                def _extrair_csv(arq):
+                    """Retorna (nome_interno, bytes_csv, erro). Aceita .csv direto ou .zip com CSV dentro."""
+                    dados = arq.getvalue()
+                    if arq.name.lower().endswith(".zip"):
+                        try:
+                            zf = zipfile.ZipFile(BytesIO(dados))
+                            csvs = [m for m in zf.namelist() if m.lower().endswith(".csv")]
+                            if not csvs:
+                                return arq.name, None, "sem CSV dentro do .zip"
+                            return csvs[0], zf.read(csvs[0]), None
+                        except Exception as e:
+                            return arq.name, None, f".zip inválido: {e}"
+                    return arq.name, dados, None
+
+                def _detect_mes_ano(*nomes):
+                    """Detecta (mes, ano) pelo nome (padrão Fatura_AAAA-MM-DD e variações)."""
+                    for nome in nomes:
+                        s = str(nome).lower()
+                        m = re.search(r'(20\d{2})[-_./]?(0[1-9]|1[0-2])(?!\d)', s)   # AAAA-MM
+                        if m: return int(m.group(2)), int(m.group(1))
+                        m = re.search(r'(?<!\d)(0[1-9]|1[0-2])[-_./](20\d{2})', s)    # MM-AAAA
+                        if m: return int(m.group(1)), int(m.group(2))
+                    return None, None
+
+                def _proc_csv(csv_bytes):
+                    try:
+                        df = pd.read_csv(BytesIO(csv_bytes), sep=";", encoding="utf-8-sig")
+                    except Exception as e:
+                        return None, None, f"erro lendo CSV: {e}"
+                    req = ["Data de Compra", "Descrição", "Categoria", "Valor (em R$)"]
                     falt = [c for c in req if c not in df.columns]
-                    if falt: return None, None, f"Colunas faltando: {falt}"
-                    ignorar = ["Inclusao","Inclusão","Estorno","Anuidade","Taxa","Juros"]
+                    if falt: return None, None, f"colunas faltando: {falt}"
+                    ignorar = ["Inclusao", "Inclusão", "Estorno", "Anuidade", "Taxa", "Juros"]
                     df = df[~df["Descrição"].str.contains("|".join(ignorar), case=False, na=False)].copy()
                     df["_val"] = pd.to_numeric(df["Valor (em R$)"], errors="coerce")
                     df["_data_orig"] = df["Data de Compra"].apply(to_br)
@@ -1336,20 +1357,59 @@ with tab_import:
                         devol["_desc"]  = devol["Descrição"].apply(lambda x: f"Reembolso - {str(x).strip()}")
                     return desp, devol, None
 
-                resumo_geral = []
-                faturas_dados = {}
-                for arq, mes_f, ano_f in configs_fat:
-                    desp, devol, erro = _proc_csv(arq, mes_f, ano_f)
-                    if erro: st.error(f"`{arq.name}`: {erro}"); continue
-                    faturas_dados[(mes_f, ano_f)] = (desp, devol, arq.name)
-                    resumo_geral.append({
-                        "Fatura": f"{MESES_NOME[mes_f-1]}/{ano_f}", "Arquivo": arq.name,
-                        "Despesas": formatar_moeda(desp["_valor"].sum() if not desp.empty else 0),
-                        "Reembolsos": formatar_moeda(devol["_valor"].sum() if not devol.empty else 0),
-                        "Itens": len(desp) + len(devol),
+                # Extrai + parseia + detecta o mês de cada arquivo
+                itens = []
+                for arq in arquivos_c6:
+                    nome_int, csv_bytes, err = _extrair_csv(arq)
+                    if err: st.error(f"`{arq.name}`: {err}"); continue
+                    desp, devol, err2 = _proc_csv(csv_bytes)
+                    if err2: st.error(f"`{arq.name}`: {err2}"); continue
+                    mes_d, ano_d = _detect_mes_ano(nome_int, arq.name)
+                    itens.append({
+                        "nome": arq.name, "desp": desp, "devol": devol,
+                        "mes": mes_d or datetime.now().month, "ano": ano_d or datetime.now().year,
+                        "auto": mes_d is not None,
+                        "total": desp["_valor"].sum() if not desp.empty else 0,
+                        "n": len(desp) + len(devol),
                     })
 
-                if resumo_geral:
+                if itens:
+                    n_auto = sum(1 for it in itens if it["auto"])
+                    st.markdown("#### 📋 Confira o mês de cada fatura")
+                    st.caption(f"✅ {n_auto}/{len(itens)} meses detectados pelo nome. "
+                               f"Corrija os ⚠️ se precisar — o mês vem do NOME do arquivo, não das datas de compra "
+                               f"(por isso parcelas não bagunçam mais).")
+                    tab = pd.DataFrame([{
+                        "": "✅" if it["auto"] else "⚠️", "Arquivo": it["nome"],
+                        "Mês": MESES_NOME[it["mes"]-1], "Ano": it["ano"],
+                        "Total": formatar_moeda(it["total"]), "Itens": it["n"],
+                    } for it in itens])
+                    ed = st.data_editor(
+                        tab,
+                        column_config={
+                            "":        st.column_config.TextColumn("", disabled=True, width="small"),
+                            "Arquivo": st.column_config.TextColumn("Arquivo", disabled=True, width="large"),
+                            "Mês":     st.column_config.SelectboxColumn("Mês", options=MESES_NOME, width="small"),
+                            "Ano":     st.column_config.NumberColumn("Ano", min_value=2020, max_value=2031, step=1, width="small"),
+                            "Total":   st.column_config.TextColumn("Total", disabled=True, width="small"),
+                            "Itens":   st.column_config.NumberColumn("Itens", disabled=True, width="small"),
+                        },
+                        hide_index=True, use_container_width=True, num_rows="fixed", key="c6_bulk_tab",
+                    )
+
+                    # Monta faturas_dados a partir dos meses confirmados na tabela
+                    faturas_dados, dup = {}, []
+                    for i, (_, row) in enumerate(ed.reset_index(drop=True).iterrows()):
+                        mes_f = MESES_NOME.index(str(row["Mês"])) + 1
+                        ano_f = int(row["Ano"])
+                        if (mes_f, ano_f) in faturas_dados:
+                            dup.append(f"{row['Mês']}/{ano_f}")
+                        faturas_dados[(mes_f, ano_f)] = (itens[i]["desp"], itens[i]["devol"], itens[i]["nome"])
+                    if dup:
+                        st.warning(f"⚠️ Mês(es) repetido(s): {', '.join(sorted(set(dup)))}. "
+                                   f"Cada mês só entra uma vez — ajuste na tabela se dois arquivos forem do mesmo mês.")
+
+                if itens:
                     # Identifica o que será substituído em cada mês:
                     #  (a) provisórios manuais do cartão  (b) resumo mensal "Cartões" vindo do Notion
                     prov_por_fat = {}
@@ -1371,18 +1431,14 @@ with tab_import:
                         mask_lump   = (_fon == "Notion") & (_cat.str.contains("Cart", case=False, na=False)) & card_ok & mes_ok
                         prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_manual | mask_lump]
 
-                    for r in resumo_geral:
-                        mn = MESES_NOME.index(r["Fatura"].split("/")[0]) + 1
-                        an = int(r["Fatura"].split("/")[1])
-                        sub_rem = prov_por_fat.get((mn, an), pd.DataFrame())
-                        val_rem = pd.to_numeric(sub_rem["valor"], errors="coerce").sum() if not sub_rem.empty else 0
-                        r["Resumo substituído"] = formatar_moeda(val_rem) if not sub_rem.empty else "—"
-
-                    st.markdown("#### 📋 Resumo")
-                    st.caption("**Despesas** = total itemizado da fatura importada · "
-                               "**Resumo substituído** = o lançamento-resumo do Notion daquele mês que sai no lugar. "
-                               "Os dois devem bater aproximadamente.")
-                    st.dataframe(pd.DataFrame(resumo_geral), use_container_width=True, hide_index=True)
+                    # Sanity check: total itemizado das faturas ≈ total do resumo Notion que sai
+                    total_itemizado = sum(it["total"] for it in itens)
+                    total_replaced  = sum(pd.to_numeric(v["valor"], errors="coerce").sum()
+                                          for v in prov_por_fat.values() if not v.empty)
+                    cM1, cM2 = st.columns(2)
+                    cM1.metric("💳 Total itemizado (faturas)", formatar_moeda(total_itemizado))
+                    cM2.metric("🔄 Resumo Notion a substituir", formatar_moeda(total_replaced))
+                    st.caption("Os dois devem bater aproximadamente — se baterem, importar não duplica nem perde valor.")
 
                     total_prov = sum(len(v) for v in prov_por_fat.values())
                     if total_prov:

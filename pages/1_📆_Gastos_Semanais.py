@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from config import DESPESAS_FILE, CONFIG_FILE
 from utils import (
     configurar_pagina, cabecalho_pagina, inicializar_dados,
-    ler_csv, formatar_moeda, mensagem_sucesso, mensagem_erro, mensagem_aviso,
+    ler_csv, salvar_parquet, formatar_moeda, mensagem_sucesso, mensagem_erro, mensagem_aviso,
     ler_json, salvar_json, invalidar_cache, gerar_id, agora,
     salvar_despesas_novas, listar_categorias,
 )
@@ -69,12 +69,13 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
             g_cat = st.selectbox("Categoria:", listar_categorias("despesa"))
             g_pag = st.selectbox("Forma de pagamento:", ["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"])
         with cg3:
-            g_valor = st.number_input("Valor (R$):", min_value=0.0, step=10.0, format="%.2f")
+            g_valor = st.number_input("Valor (R$):", min_value=0.0, value=None,
+                                      step=None, placeholder="0,00", format="%.2f")
 
         if st.form_submit_button("💾 Lançar gasto", type="primary", use_container_width=True):
             if not g_desc.strip():
                 mensagem_erro("Informe a descrição.")
-            elif g_valor <= 0:
+            elif not g_valor or g_valor <= 0:
                 mensagem_erro("Informe um valor maior que zero.")
             else:
                 nova = pd.DataFrame([{
@@ -157,6 +158,51 @@ else:
                     f"<span style='color:#5B6889;font-size:.8rem'> · {r.get('categoria','')} · {r.get('forma_pagamento','')}</span></span>"
                     f"<span style='color:#FF5C7A;font-weight:700' class='num'>{formatar_moeda(r['valor'])}</span></div>",
                     unsafe_allow_html=True)
+
+    # ── Editar / excluir ─────────────────────────────────────
+    with st.expander("✏️ Editar ou excluir gastos"):
+        st.caption("Altere qualquer célula ou marque 🗑️ para excluir. Depois clique em **Salvar**.")
+        df_ed = df_sem[["data", "descricao", "categoria", "valor", "forma_pagamento", "id"]].copy()
+        df_ed["data"] = pd.to_datetime(df_ed["data"], errors="coerce").dt.date
+        df_ed["id"]   = df_ed["id"].astype(str)
+        df_ed.insert(0, "🗑️", False)
+        editado = st.data_editor(
+            df_ed,
+            column_config={
+                "🗑️":              st.column_config.CheckboxColumn("🗑️", width="small"),
+                "data":            st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
+                "descricao":       st.column_config.TextColumn("Descrição", width="large"),
+                "categoria":       st.column_config.SelectboxColumn("Categoria", options=listar_categorias("despesa")),
+                "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.0),
+                "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
+                "id":              st.column_config.TextColumn("ID", disabled=True, width="small"),
+            },
+            column_order=["🗑️", "data", "descricao", "categoria", "valor", "forma_pagamento"],
+            hide_index=True, use_container_width=True, num_rows="fixed", key="editor_semana",
+        )
+        if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="btn_salvar_sem"):
+            full = ler_csv(DESPESAS_FILE)
+            if not full.empty:
+                ids_del = set(editado[editado["🗑️"] == True]["id"].astype(str))
+                for _, row in editado.iterrows():
+                    rid = str(row["id"])
+                    if rid in ids_del:
+                        continue
+                    m = full["id"].astype(str) == rid
+                    if m.any():
+                        nd = row["data"]
+                        full.loc[m, "data"] = nd.strftime("%Y-%m-%d") if hasattr(nd, "strftime") else str(nd)
+                        full.loc[m, "descricao"]       = str(row["descricao"])
+                        full.loc[m, "categoria"]       = str(row["categoria"])
+                        full.loc[m, "valor"]           = round(float(row["valor"] or 0), 2)
+                        full.loc[m, "forma_pagamento"] = str(row["forma_pagamento"])
+                if ids_del:
+                    full = full[~full["id"].astype(str).isin(ids_del)]
+                salvar_parquet("despesas", full)
+                invalidar_cache("despesas")
+                n_del = len(ids_del)
+                mensagem_sucesso(f"Alterações salvas!" + (f" {n_del} excluído(s)." if n_del else ""))
+                st.rerun()
 
     st.divider()
     st.markdown('<div class="p-title"><span class="tbar"></span> Ranking da semana por categoria</div>',

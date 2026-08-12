@@ -1,0 +1,12 @@
+# Configuração do Streamlit — Assistente Financeiro Periguinhos 🐧
+[server]
+# (#8) limite de upload — faturas C6 são pequenas (KB); 25 MB é folga de sobra
+maxUploadSize = 25
+
+[theme]
+base = "dark"
+primaryColor = "#4FE3FF"
+backgroundColor = "#080B14"
+secondaryBackgroundColor = "#0F1626"
+textColor = "#EAF1FF"
+font = "sans serif"

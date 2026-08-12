@@ -42,6 +42,16 @@ def login_page():
         </div>
     """, unsafe_allow_html=True)
 
+    import time
+    MAX_TENTATIVAS = 5          # (#9) trava após 5 erros
+    BLOQUEIO_SEG   = 300        # 5 min de cooldown
+
+    _bloq_ate = st.session_state.get("_login_bloqueado_ate", 0)
+    _agora = time.time()
+    if _agora < _bloq_ate:
+        st.error(f"🔒 Muitas tentativas. Tente de novo em {int(_bloq_ate - _agora)}s.")
+        return
+
     with st.form("form_login"):
         usuario = st.selectbox("Quem é você?", ["BOo", "Pixi"])
         senha   = st.text_input("Senha:", type="password", placeholder="••••••••••")
@@ -49,17 +59,38 @@ def login_page():
 
     if entrar:
         usuarios = _get_usuarios()
-        if usuarios.get(usuario) == senha:
+        # comparação em tempo (quase) constante, evita duas senhas iguais entre usuários
+        import hmac
+        esperado = str(usuarios.get(usuario, ""))
+        if esperado and hmac.compare_digest(esperado, str(senha)):
             st.session_state["logado"]  = True
             st.session_state["usuario"] = usuario
+            st.session_state["_login_ts"] = _agora
+            st.session_state["_login_tentativas"] = 0
             st.rerun()
         else:
-            st.error("Senha incorreta. Tente novamente.")
+            n = st.session_state.get("_login_tentativas", 0) + 1
+            st.session_state["_login_tentativas"] = n
+            if n >= MAX_TENTATIVAS:
+                st.session_state["_login_bloqueado_ate"] = _agora + BLOQUEIO_SEG
+                st.error(f"🔒 {n} tentativas erradas — bloqueado por {BLOQUEIO_SEG//60} min.")
+            else:
+                st.error(f"Senha incorreta ({n}/{MAX_TENTATIVAS} tentativas).")
 
+
+SESSAO_MAX_SEG = 12 * 3600   # (#9) sessão expira em 12h
 
 def exigir_login():
     """Chama no início de cada página para proteger acesso."""
+    import time
     if not st.session_state.get("logado"):
+        st.stop()
+    # expiração de sessão
+    ts = st.session_state.get("_login_ts", 0)
+    if ts and (time.time() - ts) > SESSAO_MAX_SEG:
+        for k in ["logado", "usuario", "_login_ts"]:
+            st.session_state.pop(k, None)
+        st.warning("Sua sessão expirou. Faça login novamente.")
         st.stop()
 
 

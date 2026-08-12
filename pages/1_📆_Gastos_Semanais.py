@@ -13,7 +13,7 @@ import pandas as pd
 from datetime import date, timedelta
 
 from config import DESPESAS_FILE, CONFIG_FILE
-from utils import (
+from utils import (esc, 
     configurar_pagina, cabecalho_pagina, inicializar_dados,
     ler_csv, salvar_parquet, formatar_moeda, mensagem_sucesso, mensagem_erro, mensagem_aviso,
     ler_json, salvar_json, invalidar_cache, gerar_id, agora,
@@ -154,8 +154,8 @@ else:
                 st.markdown(
                     f"<div style='display:flex;justify-content:space-between;align-items:center;"
                     f"padding:9px 14px;background:#0E1626;border:1px solid #1E2942;border-radius:10px;margin:4px 0'>"
-                    f"<span style='color:#EAF1FF'>{r['descricao']}"
-                    f"<span style='color:#5B6889;font-size:.8rem'> · {r.get('categoria','')} · {r.get('forma_pagamento','')}</span></span>"
+                    f"<span style='color:#EAF1FF'>{esc(r['descricao'])}"
+                    f"<span style='color:#5B6889;font-size:.8rem'> · {esc(r.get('categoria',''))} · {esc(r.get('forma_pagamento',''))}</span></span>"
                     f"<span style='color:#FF5C7A;font-weight:700' class='num'>{formatar_moeda(r['valor'])}</span></div>",
                     unsafe_allow_html=True)
 
@@ -211,7 +211,7 @@ else:
     maxv = rank.max() or 1
     linhas = ""
     for cat, val in rank.items():
-        linhas += (f'<div><div class="c-top"><span class="c-name">{cat}</span>'
+        linhas += (f'<div><div class="c-top"><span class="c-name">{esc(cat)}</span>'
                    f'<span class="c-val num">{formatar_moeda(val)}</span></div>'
                    f'<div class="track"><div class="fill" style="width:{val/maxv*100:.0f}%;'
                    f'background:linear-gradient(90deg,#FF5C7A,#FF8AA0)"></div></div></div>')

@@ -14,7 +14,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT
-from utils import configurar_pagina, cabecalho_pagina, inicializar_dados, ler_csv, formatar_moeda
+from utils import esc, configurar_pagina, cabecalho_pagina, inicializar_dados, ler_csv, formatar_moeda
 
 configurar_pagina("Categorias", icone="🔎")
 inicializar_dados()
@@ -79,7 +79,7 @@ maxv = por_cat.max() or 1
 linhas = ""
 for c, v in por_cat.head(20).items():
     pct = v / total_geral * 100 if total_geral else 0
-    linhas += (f'<div><div class="c-top"><span class="c-name">{c}</span>'
+    linhas += (f'<div><div class="c-top"><span class="c-name">{esc(c)}</span>'
                f'<span class="c-val num">{formatar_moeda(v)} · {pct:.0f}%</span></div>'
                f'<div class="track"><div class="fill" style="width:{v/maxv*100:.0f}%;'
                f'background:linear-gradient(90deg,{cor},{cor}bb)"></div></div></div>')
@@ -123,7 +123,7 @@ with col_b:
         mx = est["total"].max() or 1
         li = ""
         for nome, r in est.iterrows():
-            li += (f'<div><div class="c-top"><span class="c-name">{str(nome)[:34]}</span>'
+            li += (f'<div><div class="c-top"><span class="c-name">{esc(str(nome)[:34])}</span>'
                    f'<span class="c-val num">{formatar_moeda(r["total"])} ({int(r["n"])}x)</span></div>'
                    f'<div class="track"><div class="fill" style="width:{r["total"]/mx*100:.0f}%;'
                    f'background:linear-gradient(90deg,{cor},{cor}bb)"></div></div></div>')

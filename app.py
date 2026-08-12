@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE, MAPEAMENTOS_FILE
-from utils import (ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
+from utils import (esc, ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
                    listar_categorias, invalidar_cache, mensagem_sucesso, mensagem_erro)
 from auth import login_page, usuario_logado, logout
 
@@ -231,7 +231,7 @@ with col_b:
         linhas = ""
         for i, (cat, val) in enumerate(top.items()):
             g = grads[i % len(grads)]
-            linhas += (f'<div><div class="c-top"><span class="c-name">{cat}</span>'
+            linhas += (f'<div><div class="c-top"><span class="c-name">{esc(cat)}</span>'
                        f'<span class="c-val num">{formatar_moeda(val)}</span></div>'
                        f'<div class="track"><div class="fill" style="width:{val/maxv*100:.0f}%;'
                        f'background:linear-gradient(90deg,{g})"></div></div></div>')

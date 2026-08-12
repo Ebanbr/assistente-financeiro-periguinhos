@@ -277,6 +277,14 @@ def cabecalho_pagina(titulo: str, subtitulo: str, icone: str):
 def inicializar_dados():
     DATA_DIR.mkdir(exist_ok=True)
 
+def esc(texto) -> str:
+    """(#12) Escapa texto dinâmico antes de injetar em HTML (unsafe_allow_html).
+    Evita que uma descrição com '<', '&' etc. quebre o layout ou injete markup."""
+    import html
+    if texto is None:
+        return ""
+    return html.escape(str(texto))
+
 def formatar_moeda(valor: float) -> str:
     try:
         return f"R$ {float(valor):,.2f}".replace(",", "#").replace(".", ",").replace("#", ".")

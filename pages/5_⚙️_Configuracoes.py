@@ -1350,9 +1350,16 @@ with tab_import:
                     except ImportError:
                         return zipfile.ZipFile(BytesIO(dados))
 
+                # (#8) limites de segurança contra ZIP malformado / bomba
+                MAX_ARQ_MB      = 15    # cada upload (zip ou csv)
+                MAX_CSVS_ZIP    = 5     # nº de CSVs dentro de um zip
+                MAX_DESCOMP_MB  = 40    # tamanho descompactado de um CSV
+
                 def _extrair_csv(arq, senha):
                     """Retorna (nome_interno, bytes_csv, erro). Aceita .csv ou .zip (com/sem senha)."""
                     dados = arq.getvalue()
+                    if len(dados) > MAX_ARQ_MB * 1024 * 1024:
+                        return arq.name, None, f"arquivo grande demais (> {MAX_ARQ_MB} MB)"
                     if not arq.name.lower().endswith(".zip"):
                         return arq.name, dados, None
                     try:
@@ -1362,7 +1369,14 @@ with tab_import:
                         csvs = [m for m in zf.namelist() if m.lower().endswith(".csv")]
                         if not csvs:
                             return arq.name, None, "sem CSV dentro do .zip"
-                        return csvs[0], zf.read(csvs[0]), None
+                        if len(csvs) > MAX_CSVS_ZIP:
+                            return arq.name, None, f".zip com CSVs demais ({len(csvs)} > {MAX_CSVS_ZIP})"
+                        alvo = csvs[0]
+                        # confere tamanho DESCOMPACTADO antes de extrair (anti zip-bomb)
+                        info = zf.getinfo(alvo)
+                        if getattr(info, "file_size", 0) > MAX_DESCOMP_MB * 1024 * 1024:
+                            return arq.name, None, f"CSV interno grande demais (> {MAX_DESCOMP_MB} MB)"
+                        return alvo, zf.read(alvo), None
                     except RuntimeError as e:
                         msg = str(e).lower()
                         if "password" in msg or "encrypted" in msg or "bad pass" in msg:

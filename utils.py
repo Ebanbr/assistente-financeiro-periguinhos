@@ -334,26 +334,31 @@ def _resolve_tabela(arquivo) -> str:
     if "log_atividades"   in s: return "log_atividades"
     return ""
 
-def aplicar_mapeamentos(df: pd.DataFrame) -> pd.DataFrame:
-    """Aplica regras de categorização automática baseadas na descrição."""
+def aplicar_mapeamentos(df: pd.DataFrame, tipo: str = None) -> pd.DataFrame:
+    """Aplica regras de categorização por descrição.
+
+    `tipo` ('despesa' | 'receita') é o tipo do DataFrame recebido e é usado para
+    NÃO cruzar regras: uma regra de receita nunca toca uma despesa e vice-versa.
+    (#5) Antes isso dependia de uma coluna 'tipo' que os DataFrames não têm.
+    """
     if df.empty or "descricao" not in df.columns:
         return df
     from config import MAPEAMENTOS_FILE
     regras = ler_csv(MAPEAMENTOS_FILE)
     if regras.empty:
         return df
+    tipo = (tipo or "").strip().lower() or None
     df = df.copy()
     for _, regra in regras.iterrows():
-        padrao   = str(regra.get("padrao", "")).strip()
+        padrao    = str(regra.get("padrao", "")).strip()
         categoria = str(regra.get("categoria", "")).strip()
-        tipo     = str(regra.get("tipo", "ambos")).strip().lower()
+        regra_tipo = str(regra.get("tipo", "ambos")).strip().lower()
         if not padrao or not categoria:
             continue
+        # respeita o tipo do df: regra específica de outro tipo é ignorada
+        if tipo and regra_tipo in ("despesa", "receita") and regra_tipo != tipo:
+            continue
         mask = df["descricao"].astype(str).str.contains(padrao, case=False, na=False, regex=False)
-        if tipo == "despesa" and "tipo" in df.columns:
-            mask = mask & (df["tipo"] == "despesa")
-        elif tipo == "receita" and "tipo" in df.columns:
-            mask = mask & (df["tipo"] == "receita")
         df.loc[mask, "categoria"] = categoria
     return df
 

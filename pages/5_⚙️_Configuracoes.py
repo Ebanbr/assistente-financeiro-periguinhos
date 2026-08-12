@@ -850,7 +850,7 @@ with tab_cats:
                             df_at = ler_csv(arquivo_at)
                             if df_at.empty: continue
                             antes = df_at["categoria"].copy()
-                            df_at = aplicar_mapeamentos(df_at)
+                            df_at = aplicar_mapeamentos(df_at, tipo=("despesa" if arquivo_at == "despesas" else "receita"))
                             alt   = int((df_at["categoria"] != antes).sum())
                             salvar_parquet(arquivo_at, df_at)
                             total_alt += alt
@@ -1042,21 +1042,25 @@ with tab_import:
 
                     if st.button("✅ Confirmar e Gravar (substitui dados Notion)", type="primary",
                                  use_container_width=True, key="btn_grava_notion"):
-                        remover_por_fonte("despesas", ["Notion"])
-                        remover_por_fonte("receitas", ["Notion"])
-                        td = tr = 0
-                        df_ex = ler_csv(DESPESAS_FILE)  # já sem Notion; contém detalhes C6 Bank
+                        # (#3 ATÔMICO) monta o conjunto final INTEIRO em memória e só grava
+                        # no fim. Não apaga antes de montar — se algo falhar, nada é perdido.
+                        df_d_atual = ler_csv(DESPESAS_FILE)
+                        df_r_atual = ler_csv(RECEITAS_FILE)
+                        # base = tudo que NÃO é Notion (preserva C6 Bank, Manual, Semanal)
+                        df_d_base = (df_d_atual[df_d_atual["fonte"].astype(str) != "Notion"]
+                                     if not df_d_atual.empty and "fonte" in df_d_atual.columns else df_d_atual)
+                        df_r_base = (df_r_atual[df_r_atual["fonte"].astype(str) != "Notion"]
+                                     if not df_r_atual.empty and "fonte" in df_r_atual.columns else df_r_atual)
 
-                        # Não re-adicionar o resumo de cartão de meses já detalhados por fatura.
+                        # não re-adicionar o resumo de cartão de meses já detalhados por fatura
                         detalhados = set()
-                        if not df_ex.empty and "fonte" in df_ex.columns:
-                            _c6 = df_ex[df_ex["fonte"].astype(str) == "C6 Bank"]
+                        if not df_d_base.empty and "fonte" in df_d_base.columns:
+                            _c6 = df_d_base[df_d_base["fonte"].astype(str) == "C6 Bank"]
                             for _, rr in _c6.iterrows():
                                 card = str(rr.get("banco","")).strip().lower() or str(rr.get("forma_pagamento","")).strip().lower()
                                 mes  = str(rr.get("data",""))[:7]
                                 if card and mes:
                                     detalhados.add((card, mes))
-
                         linhas_d_final, pulados = [], 0
                         for ln in linhas_d:
                             eh_resumo = "cart" in str(ln.get("categoria","")).lower()
@@ -1067,23 +1071,30 @@ with tab_import:
                                 continue
                             linhas_d_final.append(ln)
 
-                        if linhas_d_final:
-                            df_nd = aplicar_mapeamentos(pd.DataFrame(linhas_d_final))
-                            salvar_parquet("despesas", pd.concat([df_ex, df_nd], ignore_index=True) if not df_ex.empty else df_nd)
-                            td = len(linhas_d_final)
-                        if linhas_r:
-                            df_exr = ler_csv(RECEITAS_FILE)
-                            df_nr = aplicar_mapeamentos(pd.DataFrame(linhas_r))
-                            salvar_parquet("receitas", pd.concat([df_exr, df_nr], ignore_index=True) if not df_exr.empty else df_nr)
-                            tr = len(linhas_r)
-                        invalidar_cache("despesas"); invalidar_cache("receitas")
-                        st.session_state.pop("_notion_preview", None)
-                        log_atividade("sincronizou Notion (API)", f"{td} despesas · {tr} receitas · {pulados} resumos pulados")
-                        msg = f"✅ Sincronizado! {td} despesas e {tr} receitas do Notion."
-                        if pulados:
-                            msg += f" ({pulados} resumo(s) de cartão pulado(s) — mês já detalhado pela fatura.)"
-                        mensagem_sucesso(msg)
-                        st.balloons()
+                        # conjunto final completo
+                        df_d_novo = aplicar_mapeamentos(pd.DataFrame(linhas_d_final), tipo="despesa") if linhas_d_final else pd.DataFrame()
+                        df_r_novo = aplicar_mapeamentos(pd.DataFrame(linhas_r), tipo="receita") if linhas_r else pd.DataFrame()
+                        df_d_final = pd.concat([df_d_base, df_d_novo], ignore_index=True) if not df_d_novo.empty else df_d_base
+                        df_r_final = pd.concat([df_r_base, df_r_novo], ignore_index=True) if not df_r_novo.empty else df_r_base
+                        td, tr = len(linhas_d_final), len(linhas_r)
+
+                        # valida: sync que traz zero linhas do Notion é suspeito → aborta
+                        if td == 0 and tr == 0:
+                            mensagem_erro("O Notion não retornou lançamentos — sincronização abortada (nada foi alterado).")
+                        else:
+                            ok_d = salvar_parquet("despesas", df_d_final)
+                            ok_r = salvar_parquet("receitas", df_r_final)
+                            if ok_d and ok_r:
+                                invalidar_cache("despesas"); invalidar_cache("receitas")
+                                st.session_state.pop("_notion_preview", None)
+                                log_atividade("sincronizou Notion (API)", f"{td} despesas · {tr} receitas · {pulados} resumos pulados")
+                                msg = f"✅ Sincronizado! {td} despesas e {tr} receitas do Notion."
+                                if pulados:
+                                    msg += f" ({pulados} resumo(s) de cartão pulado(s) — mês já detalhado.)"
+                                mensagem_sucesso(msg)
+                                st.balloons()
+                            else:
+                                mensagem_erro("Gravação bloqueada por segurança — nada foi alterado. Recarregue e tente de novo.")
 
     # ── Sub: Notion ───────────────────────────────────────────
     with sub_notion:
@@ -1229,49 +1240,49 @@ with tab_import:
                         st.warning(f"⚠️ Re-importar substituirá {n_nd} despesas e {n_nr} receitas do Notion.")
 
                     if st.button("✅ Confirmar Importação Notion", type="primary", use_container_width=True, key="btn_notion"):
-                        remover_por_fonte("despesas", ["Notion"])
-                        remover_por_fonte("receitas",  ["Notion"])
-                        total_d = total_r = 0
+                        # (#3 ATÔMICO) monta tudo em memória; grava só no fim.
+                        df_d_atual = ler_csv(DESPESAS_FILE)
+                        df_r_atual = ler_csv(RECEITAS_FILE)
+                        df_d_base = (df_d_atual[df_d_atual["fonte"].astype(str) != "Notion"]
+                                     if not df_d_atual.empty and "fonte" in df_d_atual.columns else df_d_atual)
+                        df_r_base = (df_r_atual[df_r_atual["fonte"].astype(str) != "Notion"]
+                                     if not df_r_atual.empty and "fonte" in df_r_atual.columns else df_r_atual)
 
-                        if not df_desp_n.empty:
-                            linhas = []
-                            for _, r in df_desp_n.iterrows():
-                                if not r["_data"] or not r["_nome"]: continue
-                                linhas.append({
-                                    "id": gerar_id(), "data": r["_data"],
-                                    "descricao": r["_nome"], "categoria": limpar_categoria(r["_prop"]),
-                                    "valor": round(float(r["_val_desp"]), 2),
-                                    "forma_pagamento": r["_banco"] or "Outros", "banco": "",
-                                    "status": "Pago" if r["_foi_pago"] else "A Pagar",
-                                    "observacao": "", "fonte": "Notion", "criado_em": agora(),
-                                })
-                            if linhas:
-                                df_nd = aplicar_mapeamentos(pd.DataFrame(linhas))
-                                df_ex = ler_csv(DESPESAS_FILE)
-                                salvar_parquet("despesas", pd.concat([df_ex, df_nd], ignore_index=True) if not df_ex.empty else df_nd)
-                                total_d = len(linhas)
+                        linhas_d = [{
+                            "id": gerar_id(), "data": r["_data"],
+                            "descricao": r["_nome"], "categoria": limpar_categoria(r["_prop"]),
+                            "valor": round(float(r["_val_desp"]), 2),
+                            "forma_pagamento": r["_banco"] or "Outros", "banco": "",
+                            "status": "Pago" if r["_foi_pago"] else "A Pagar",
+                            "observacao": "", "fonte": "Notion", "criado_em": agora(),
+                        } for _, r in df_desp_n.iterrows() if r["_data"] and r["_nome"]] if not df_desp_n.empty else []
+                        linhas_r = [{
+                            "id": gerar_id(), "data": r["_data"],
+                            "descricao": r["_nome"], "categoria": limpar_categoria(r["_prop"], "📦 Outros"),
+                            "valor": round(float(r["_val_rec"]), 2),
+                            "forma_recebimento": r["_banco"] or "📱 PIX",
+                            "status": "Recebida" if r["_foi_pago"] else "A Receber",
+                            "observacao": "", "fonte": "Notion", "criado_em": agora(),
+                        } for _, r in df_rec_n.iterrows() if r["_data"] and r["_nome"]] if not df_rec_n.empty else []
 
-                        if not df_rec_n.empty:
-                            linhas = []
-                            for _, r in df_rec_n.iterrows():
-                                if not r["_data"] or not r["_nome"]: continue
-                                linhas.append({
-                                    "id": gerar_id(), "data": r["_data"],
-                                    "descricao": r["_nome"], "categoria": limpar_categoria(r["_prop"], "📦 Outros"),
-                                    "valor": round(float(r["_val_rec"]), 2),
-                                    "forma_recebimento": r["_banco"] or "📱 PIX",
-                                    "status": "Recebida" if r["_foi_pago"] else "A Receber",
-                                    "observacao": "", "fonte": "Notion", "criado_em": agora(),
-                                })
-                            if linhas:
-                                df_nr = aplicar_mapeamentos(pd.DataFrame(linhas))
-                                df_ex = ler_csv(RECEITAS_FILE)
-                                salvar_parquet("receitas", pd.concat([df_ex, df_nr], ignore_index=True) if not df_ex.empty else df_nr)
-                                total_r = len(linhas)
+                        df_d_novo = aplicar_mapeamentos(pd.DataFrame(linhas_d), tipo="despesa") if linhas_d else pd.DataFrame()
+                        df_r_novo = aplicar_mapeamentos(pd.DataFrame(linhas_r), tipo="receita") if linhas_r else pd.DataFrame()
+                        df_d_final = pd.concat([df_d_base, df_d_novo], ignore_index=True) if not df_d_novo.empty else df_d_base
+                        df_r_final = pd.concat([df_r_base, df_r_novo], ignore_index=True) if not df_r_novo.empty else df_r_base
+                        total_d, total_r = len(linhas_d), len(linhas_r)
 
-                        log_atividade("importou Notion", f"{total_d} despesas e {total_r} receitas")
-                        mensagem_sucesso(f"Notion atualizado! {total_d} despesas e {total_r} receitas.")
-                        st.balloons()
+                        if total_d == 0 and total_r == 0:
+                            mensagem_erro("Nenhum lançamento válido no CSV — importação abortada (nada foi alterado).")
+                        else:
+                            ok_d = salvar_parquet("despesas", df_d_final)
+                            ok_r = salvar_parquet("receitas", df_r_final)
+                            if ok_d and ok_r:
+                                invalidar_cache("despesas"); invalidar_cache("receitas")
+                                log_atividade("importou Notion", f"{total_d} despesas e {total_r} receitas")
+                                mensagem_sucesso(f"Notion atualizado! {total_d} despesas e {total_r} receitas.")
+                                st.balloons()
+                            else:
+                                mensagem_erro("Gravação bloqueada por segurança — nada foi alterado.")
 
             except Exception as e:
                 mensagem_erro(f"Erro: {e}"); st.exception(e)
@@ -1294,7 +1305,12 @@ with tab_import:
         nomes_cartoes = cartoes_df["nome"].tolist() if not cartoes_df.empty and "nome" in cartoes_df.columns else []
         cartao_sel    = st.selectbox("Cartão desta fatura:", nomes_cartoes, key="c6_cartao") if nomes_cartoes else st.text_input("Nome do cartão:", value="C6 BRU", key="c6_cartao_txt")
 
-        modo = st.radio("Modo:", ["📄 Fatura única (1 mês)", "📦 CSV unificado (múltiplos meses)"], horizontal=True, key="modo_c6")
+        # Modo "CSV unificado" DESATIVADO (#4): ele agrupava pela data da compra,
+        # jogando parcelas em meses errados. Importação só por fatura/mês (ZIP),
+        # que usa o mês de fechamento — preciso e sem esse bug.
+        modo = "📄 Fatura única (1 mês)"
+        st.caption("📄 Importação por **fatura/mês** — cada arquivo é uma fatura. "
+                   "(O modo 'CSV unificado' foi desativado por imprecisão em parcelamentos.)")
 
         if modo == "📄 Fatura única (1 mês)":
             st.info("Envie as faturas em **.csv ou .zip** (pode mandar as 32 de uma vez). "
@@ -1428,7 +1444,10 @@ with tab_import:
 
                 if itens:
                     # Identifica o que será substituído em cada mês:
-                    #  (a) provisórios manuais do cartão  (b) resumo mensal "Cartões" vindo do Notion
+                    #  (a) provisórios manuais do cartão
+                    #  (b) resumo mensal "Cartões" vindo do Notion
+                    #  (c) IMPORTAÇÕES C6 ANTERIORES do mesmo cartão+mês (#2 idempotência):
+                    #      sem isso, reimportar duplicaria a fatura inteira.
                     prov_por_fat = {}
                     alvo_cartao = cartao_sel.strip().lower()
                     for (mes_f, ano_f) in faturas_dados:
@@ -1446,7 +1465,9 @@ with tab_import:
                         mask_manual = (_fon == "Manual") & (~_fp.str.contains("pix", na=False)) & (_bk == alvo_cartao) & mes_ok
                         # (b) resumo/lump do Notion: categoria "Cartões" desse cartão, no mês
                         mask_lump   = (_fon == "Notion") & (_cat.str.contains("Cart", case=False, na=False)) & card_ok & mes_ok
-                        prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_manual | mask_lump]
+                        # (c) detalhe C6 já importado antes p/ este cartão+mês → substitui (não duplica)
+                        mask_c6ant  = (_fon == "C6 Bank") & (_bk == alvo_cartao) & mes_ok
+                        prov_por_fat[(mes_f, ano_f)] = df_hist_c6[mask_manual | mask_lump | mask_c6ant]
 
                     # Separa: meses que JÁ têm resumo no Notion (substituem, sem duplicar)
                     #         vs meses que o Notion não tinha (histórico novo)
@@ -1474,7 +1495,17 @@ with tab_import:
                     if st.button("✅ Confirmar e Importar", type="primary", use_container_width=True, key="btn_c6_multi"):
                         total_d = total_r = total_rem = 0
                         df_desp_full = ler_csv(DESPESAS_FILE)
+                        df_rec_full  = ler_csv(RECEITAS_FILE)
+                        meses_imp = set(faturas_dados.keys())  # {(mes, ano)}
 
+                        # (#2 idempotência) remove reembolsos C6 Bank dos meses reimportados
+                        if not df_rec_full.empty and "fonte" in df_rec_full.columns:
+                            _rdt = pd.to_datetime(df_rec_full["data"], errors="coerce")
+                            _mask_rr = (df_rec_full["fonte"].astype(str) == "C6 Bank") & _rdt.apply(
+                                lambda x: (int(x.month), int(x.year)) in meses_imp if pd.notna(x) else False)
+                            df_rec_full = df_rec_full[~_mask_rr]
+
+                        novas_rec = []
                         for (mes_fat, ano_fat), (df_desp, df_devol, _) in faturas_dados.items():
                             data_fmt = f"{ano_fat:04d}-{mes_fat:02d}-01"
                             df_prov  = prov_por_fat.get((mes_fat, ano_fat), pd.DataFrame())
@@ -1490,25 +1521,30 @@ with tab_import:
                                            "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
                                            "fonte": "C6 Bank", "criado_em": agora()}
                                           for _, r in df_desp.iterrows()]
-                                df_nov = aplicar_mapeamentos(pd.DataFrame(linhas))
+                                df_nov = aplicar_mapeamentos(pd.DataFrame(linhas), tipo="despesa")
                                 df_desp_full = pd.concat([df_desp_full, df_nov], ignore_index=True)
                                 total_d += len(df_nov)
 
                             if not df_devol.empty:
-                                linhas_r = [{"id": gerar_id(), "data": data_fmt, "descricao": r["_desc"],
-                                             "categoria": "🔄 Reembolso", "valor": round(float(r["_valor"]), 2),
-                                             "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
-                                             "observacao": f"Reembolso {r['_data_orig']}", "fonte": "C6 Bank", "criado_em": agora()}
-                                            for _, r in df_devol.iterrows()]
-                                total_r += salvar_receitas_novas(pd.DataFrame(linhas_r))
+                                novas_rec += [{"id": gerar_id(), "data": data_fmt, "descricao": r["_desc"],
+                                               "categoria": "🔄 Reembolso", "valor": round(float(r["_valor"]), 2),
+                                               "forma_recebimento": "💳 Crédito no Cartão", "status": "Pago",
+                                               "observacao": f"Reembolso {r['_data_orig']}", "fonte": "C6 Bank",
+                                               "criado_em": agora()} for _, r in df_devol.iterrows()]
 
-                        if not df_desp_full.empty:
-                            salvar_parquet("despesas", df_desp_full)
-                            invalidar_cache("despesas"); invalidar_cache("receitas")
+                        # Grava despesas e receitas (as receitas já sem os reembolsos antigos do mês)
+                        ok_d = salvar_parquet("despesas", df_desp_full) if not df_desp_full.empty else True
+                        df_rec_final = pd.concat([df_rec_full, pd.DataFrame(novas_rec)], ignore_index=True) if novas_rec else df_rec_full
+                        ok_r = salvar_parquet("receitas", df_rec_final)
+                        total_r = len(novas_rec)
+                        invalidar_cache("despesas"); invalidar_cache("receitas")
 
-                        log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d} despesas · {total_rem} resumos substituídos")
-                        mensagem_sucesso(f"✅ {total_d} despesas detalhadas · {total_rem} resumo(s) do cartão substituído(s)!")
-                        st.balloons()
+                        if ok_d and ok_r:
+                            log_atividade("importou faturas C6", f"{len(faturas_dados)} meses · {total_d} despesas · {total_rem} substituídos")
+                            mensagem_sucesso(f"✅ {total_d} despesas · {total_r} reembolsos · {total_rem} lançamento(s) substituído(s)! (reimportar o mesmo mês não duplica)")
+                            st.balloons()
+                        else:
+                            mensagem_erro("Gravação bloqueada por segurança — nada foi alterado. Recarregue e tente de novo.")
 
         else:  # CSV unificado
             st.info("CSV com faturas de vários meses juntos.")
@@ -1561,7 +1597,7 @@ with tab_import:
                                     linhas = [{"id": gerar_id(), "data": data_fmt, "descricao": r["_desc"], "categoria": r["_cat"],
                                                "valor": round(float(r["_val"]), 2), "forma_pagamento": "💳 Crédito",
                                                "banco": cartao_sel, "status": "Pago", "observacao": f"Compra em {r['_data_orig']}", "fonte": "C6 Bank", "criado_em": agora()} for _, r in df_dd.iterrows()]
-                                    total_d += salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas)))
+                                    total_d += salvar_despesas_novas(aplicar_mapeamentos(pd.DataFrame(linhas), tipo="despesa"))
                                 if not df_dv.empty:
                                     linhas = [{"id": gerar_id(), "data": data_fmt, "descricao": f"Reembolso - {r['_desc']}", "categoria": "🔄 Reembolso",
                                                "valor": round(abs(float(r["_val"])), 2), "forma_recebimento": "💳 Crédito no Cartão",

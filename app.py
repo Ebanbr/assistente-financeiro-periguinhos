@@ -12,7 +12,7 @@ from pathlib import Path
 
 from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE, MAPEAMENTOS_FILE
 from utils import (ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
-                   listar_categorias, invalidar_cache, mensagem_sucesso)
+                   listar_categorias, invalidar_cache, mensagem_sucesso, mensagem_erro)
 from auth import login_page, usuario_logado, logout
 
 # ── Login ─────────────────────────────────────────────────────
@@ -394,32 +394,47 @@ if not _out.empty:
             hide_index=True, use_container_width=True, num_rows="fixed", key="cat_outros_editor", height=400,
         )
         _criar_regra = st.checkbox("Criar regra pra categorizar isso automaticamente no futuro", value=True, key="cat_criar_regra")
+
+        # Prévia do impacto real (recategoriza TODOS os lançamentos com esses nomes)
+        _sel = _ed[_ed["Nova categoria"].astype(str).str.strip() != ""]
+        if not _sel.empty:
+            _nomes = set(_sel["Estabelecimento"].astype(str))
+            _afeta = int(df_d["descricao"].astype(str).isin(_nomes).sum()) if not df_d.empty else 0
+            st.info(f"🔎 **Prévia:** {len(_sel)} categoria(s) escolhida(s) vão recategorizar "
+                    f"**{_afeta} lançamento(s)** com esses nomes — de **todas as fontes e períodos**, "
+                    f"não só o que está em Outros.")
+
         if st.button("💾 Salvar categorização", type="primary", use_container_width=True, key="btn_cat_outros"):
-            _atrib = _ed[_ed["Nova categoria"].astype(str).str.strip() != ""]
-            if _atrib.empty:
+            if _sel.empty:
                 st.warning("Escolha ao menos uma categoria.")
             else:
                 _dfull = ler_csv(DESPESAS_FILE)
                 _n = 0
-                for _, _r in _atrib.iterrows():
+                for _, _r in _sel.iterrows():
                     _est = str(_r["Estabelecimento"]); _cat = str(_r["Nova categoria"])
                     _m = _dfull["descricao"].astype(str) == _est
                     _n += int(_m.sum())
                     _dfull.loc[_m, "categoria"] = _cat
-                salvar_parquet("despesas", _dfull)
-                # cria regras
+                _ok = salvar_parquet("despesas", _dfull)
+                # cria regras — SEM duplicar (mesma descrição não vira 2 regras)
                 _nr = 0
-                if _criar_regra:
+                if _ok and _criar_regra:
                     _reg = ler_csv(MAPEAMENTOS_FILE)
+                    _existentes = set(_reg["padrao"].astype(str).str.strip().str.lower()) if not _reg.empty and "padrao" in _reg.columns else set()
                     _novas = [{"id": gerar_id(), "padrao": str(_r["Estabelecimento"]),
                                "categoria": str(_r["Nova categoria"]), "tipo": "despesa"}
-                              for _, _r in _atrib.iterrows()]
-                    _reg = pd.concat([_reg, pd.DataFrame(_novas)], ignore_index=True) if not _reg.empty else pd.DataFrame(_novas)
-                    salvar_parquet("mapeamentos", _reg)
-                    _nr = len(_novas)
-                invalidar_cache("despesas"); invalidar_cache("mapeamentos")
-                mensagem_sucesso(f"✅ {_n} lançamento(s) recategorizados" + (f" · {_nr} regra(s) criada(s)!" if _nr else "!"))
-                st.rerun()
+                              for _, _r in _sel.iterrows()
+                              if str(_r["Estabelecimento"]).strip().lower() not in _existentes]
+                    if _novas:
+                        _reg2 = pd.concat([_reg, pd.DataFrame(_novas)], ignore_index=True) if not _reg.empty else pd.DataFrame(_novas)
+                        salvar_parquet("mapeamentos", _reg2)
+                        _nr = len(_novas)
+                if _ok:
+                    invalidar_cache("despesas"); invalidar_cache("mapeamentos")
+                    mensagem_sucesso(f"✅ {_n} lançamento(s) recategorizados" + (f" · {_nr} regra(s) nova(s)!" if _nr else "!"))
+                    st.rerun()
+                else:
+                    mensagem_erro("Gravação bloqueada por segurança — nada foi alterado.")
 
 st.divider()
 st.markdown(

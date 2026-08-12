@@ -1291,14 +1291,29 @@ with tab_import:
     with sub_c6:
         st.markdown("### 💳 C6 Bank — Fatura Mensal")
 
-        MAPA_CAT_C6 = {
-            "Especialidade varejo": "🛒 Compras Online", "Vestuário / Roupas": "👗 Vestuário",
-            "Marketing Direto": "🛒 Compras Online", "Empresa para empresa": "📦 Outros",
-            "Departamento / Desconto": "🛒 Compras Online", "Alimentação": "🍽️ Alimentação",
-            "Restaurantes": "🍽️ Alimentação", "Saúde": "💊 Saúde", "Educação": "📚 Educação",
-            "Transporte": "🚗 Transporte", "Entretenimento": "🎮 Lazer", "Viagens": "✈️ Viagens",
-            "Farmácias": "💊 Saúde", "Supermercados": "🍽️ Alimentação", "Postos de Combustível": "🚗 Transporte",
-        }
+        # (#7) Mapa por PALAVRA-CHAVE — robusto aos nomes compostos e longos do C6
+        # (ex.: "Supermercados / Mercearia / Padarias / Lojas de Conveniência").
+        # Só mapeia as categorias claras; ambíguas (Associação, Serviços Profissionais,
+        # Restaurante/Bar) ficam em Outros pra o usuário decidir pelo campo do dashboard.
+        _C6_KEYWORDS = [
+            (("supermerc", "mercearia", "padaria", "conveni"), "🛒 Supermercado"),
+            (("farmác", "farmac", "drogaria"),                 "💊 Saúde - Farmácia"),
+            (("médica", "medica", "odonto", "hospital", "saúde", "saude", "clínic", "clinic"), "💊 Saúde"),
+            (("combustível", "combustivel", "posto"),          "⛽ Combustível"),
+            (("automotivo", "automóvel", "automovel", "veícul", "veicul", "estacionamento"), "🚗 Transporte"),
+            (("aérea", "aerea", "hotel", "t&e", "viage", "turismo"), "✈️ Viagens"),
+            (("educ", "escola", "curso", "livraria", "papelaria"), "📚 Educação"),
+            (("vestuár", "vestuar", "roupas", "calçad", "calcad"), "👗 Vestuário"),
+            (("varejo", "departamento", "marketing direto", "compras online", "e-commerce"), "🛒 Compras Online"),
+            (("telecomunic", "telefonia", "celular"),          "📱 Celular"),
+            (("tv por assinatura", "streaming", "rádio", "radio"), "📺 Streaming"),
+        ]
+        def _categoria_c6(c6cat: str) -> str:
+            s = str(c6cat).strip().lower()
+            for chaves, cat in _C6_KEYWORDS:
+                if any(k in s for k in chaves):
+                    return cat
+            return "📦 Outros"
         MESES_NOME = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
 
         cartoes_df    = _DF_CART
@@ -1379,7 +1394,7 @@ with tab_import:
                     df["_val"] = pd.to_numeric(df["Valor (em R$)"], errors="coerce")
                     df["_data_orig"] = df["Data de Compra"].apply(to_br)
                     df["_desc"] = df["Descrição"].str.strip()
-                    df["_cat"]  = df["Categoria"].apply(lambda x: MAPA_CAT_C6.get(str(x).strip(), "📦 Outros"))
+                    df["_cat"]  = df["Categoria"].apply(_categoria_c6)
                     desp  = df[df["_val"] > 0].copy()
                     devol = df[df["_val"] < 0].copy()
                     if not desp.empty:
@@ -1563,7 +1578,7 @@ with tab_import:
                         df_c6["_data_ts"]  = pd.to_datetime(df_c6["Data de Compra"], dayfirst=True, errors="coerce")
                         df_c6["_data_orig"]= df_c6["Data de Compra"].apply(to_br)
                         df_c6["_desc"]     = df_c6["Descrição"].str.strip()
-                        df_c6["_cat"]      = df_c6["Categoria"].apply(lambda x: MAPA_CAT_C6.get(str(x).strip(), "📦 Outros"))
+                        df_c6["_cat"]      = df_c6["Categoria"].apply(_categoria_c6)
                         df_c6["_ano"] = df_c6["_data_ts"].dt.year
                         df_c6["_mes"] = df_c6["_data_ts"].dt.month
 

@@ -86,9 +86,11 @@ def _parse_data_robusta(serie) -> pd.Series:
     s = serie.astype(str).str.strip()
     # descarta hora se vier ("2026-06-05 00:00:00" / "2026-06-05T...")
     s_data = s.str.split(" ").str[0].str.split("T").str[0]
-    iso_mask = s_data.str.match(r"^\d{4}-\d{1,2}-\d{1,2}$")
-    # ISO: parse direto (pandas não aplica dayfirst em YYYY-MM-DD)
-    iso_parsed = pd.to_datetime(s_data.where(iso_mask), errors="coerce")
+    # ISO = começa com ano de 4 dígitos (aceita '-' ou '/'); pandas trata year-first
+    # sempre como AAAA-MM-DD, então não há ambiguidade de dayfirst aqui.
+    iso_mask = s_data.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$")
+    iso_parsed = pd.to_datetime(s_data.where(iso_mask).str.replace("/", "-", regex=False),
+                                format="%Y-%m-%d", errors="coerce")
     # Resto: formato brasileiro, dia primeiro
     br_parsed  = pd.to_datetime(s.where(~iso_mask), dayfirst=True, errors="coerce")
     return iso_parsed.fillna(br_parsed)
@@ -322,7 +324,8 @@ def mensagem_aviso(msg: str):
     st.warning(f"⚠️ {msg}")
 
 def gerar_id() -> str:
-    return str(uuid.uuid4())[:8].upper()
+    # UUID completo — risco de colisão nulo (o encurtado de 8 chars tinha risco desnecessário)
+    return str(uuid.uuid4())
 
 def agora() -> str:
     return datetime.now().isoformat()

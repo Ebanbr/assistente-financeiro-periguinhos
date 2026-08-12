@@ -1767,7 +1767,7 @@ with tab_sistema:
                 cd1, cd2 = st.columns(2)
                 with cd1:
                     if st.button("✅ Sim, apagar", type="primary", key=f"yes_{_tab_nome}", use_container_width=True):
-                        salvar_parquet(_tab_nome, pd.DataFrame())
+                        salvar_parquet(_tab_nome, pd.DataFrame(), permitir_vazio=True)
                         invalidar_cache(_tab_nome)
                         st.session_state[_k] = False
                         log_atividade("apagou tabela", f"{_rot} ({_n} registros)")

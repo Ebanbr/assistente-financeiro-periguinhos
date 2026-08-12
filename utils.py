@@ -43,21 +43,22 @@ def _usar_gsheets() -> bool:
 
 def _get_worksheet(tabela: str):
     from google.oauth2.service_account import Credentials
+    from gspread.exceptions import WorksheetNotFound
     import gspread
 
     s = _get_secrets()
     creds = Credentials.from_service_account_info(
         s["gcp_service_account"],
-        scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ],
+        # Escopo mínimo: só planilhas (abrimos por ID, não precisamos do Drive inteiro).
+        scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
     client = gspread.authorize(creds)
     sh = client.open_by_key(s["SPREADSHEET_ID"])
     try:
         return sh.worksheet(tabela)
-    except Exception:
+    except WorksheetNotFound:
+        # Só cria a aba quando ela REALMENTE não existe. Qualquer outro erro
+        # (429, permissão, rede) propaga — nunca cria aba por engano.
         return sh.add_worksheet(title=tabela, rows=5000, cols=25)
 
 def _gsheet_com_retry(fn, *args, tentativas=5, **kwargs):
@@ -174,8 +175,47 @@ def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
 
         return df
     except Exception as e:
-        st.error(f"❌ Erro ao ler Google Sheets ({tabela}): {e}")
-        return pd.DataFrame()
+        # IMPORTANTE: um erro de leitura (429, permissão, rede) NÃO pode virar
+        # "planilha vazia". Propaga a exceção — o cache não guarda falha, e
+        # ler_csv marca o estado para bloquear gravações que sobrescreveriam tudo.
+        raise RuntimeError(f"Erro ao ler Google Sheets ({tabela}): {e}") from e
+
+
+def _leitura_falhou() -> set:
+    try:
+        return st.session_state.setdefault("_leitura_falhou", set())
+    except Exception:
+        return set()
+
+def _registrar_leitura_ok(tabela: str, n: int):
+    try:
+        st.session_state.setdefault("_leitura_falhou", set()).discard(tabela)
+        st.session_state.setdefault("_ultimas_linhas", {})[tabela] = n
+    except Exception:
+        pass
+
+def _registrar_leitura_falha(tabela: str):
+    try:
+        st.session_state.setdefault("_leitura_falhou", set()).add(tabela)
+    except Exception:
+        pass
+
+def _ultimas_linhas(tabela: str) -> int:
+    try:
+        return st.session_state.get("_ultimas_linhas", {}).get(tabela, 0)
+    except Exception:
+        return 0
+
+def _gravacao_bloqueada(tabela: str, df: pd.DataFrame, permitir_vazio: bool) -> str | None:
+    """Retorna a razão do bloqueio, ou None se pode gravar."""
+    if tabela in _leitura_falhou():
+        return (f"a última leitura de '{tabela}' falhou (quota/conexão). "
+                f"Recarregue a página antes de gravar.")
+    if (df is None or df.empty) and not permitir_vazio and _ultimas_linhas(tabela) > 0:
+        return (f"a tabela ficou vazia e sobrescreveria {_ultimas_linhas(tabela)} registro(s). "
+                f"Se for intencional, use a opção de Limpar.")
+    return None
+
 
 def _salvar_gsheet(tabela: str, df: pd.DataFrame):
     try:
@@ -370,7 +410,15 @@ def ler_csv(arquivo) -> pd.DataFrame:
 
     if _usar_gsheets():
         versoes = st.session_state.get("_data_versions", {})
-        return _ler_gsheet(tabela, _v=versoes.get(tabela, 0))
+        try:
+            df = _ler_gsheet(tabela, _v=versoes.get(tabela, 0))
+            _registrar_leitura_ok(tabela, len(df))   # leitura OK (inclui vazio legítimo)
+            return df
+        except Exception as e:
+            _registrar_leitura_falha(tabela)          # falha real → bloqueia gravações
+            st.error(f"❌ Falha ao ler '{tabela}': {e}. "
+                     f"Gravações nesta tabela ficam bloqueadas até a leitura voltar — recarregue a página.")
+            return pd.DataFrame()
 
     # ── Fallback local (Parquet) ──────────────────────────────
     arquivo_parquet = DATA_DIR / f"{tabela}.parquet"
@@ -408,17 +456,27 @@ def ler_csv(arquivo) -> pd.DataFrame:
 
 # ── ESCRITA ──────────────────────────────────────────────────
 
-def salvar_parquet(tabela: str, df: pd.DataFrame):
-    """Salva no GSheets (produção) ou Parquet (local)."""
-    if _usar_gsheets():
-        _salvar_gsheet(tabela, df)
-        return
+def salvar_parquet(tabela: str, df: pd.DataFrame, permitir_vazio: bool = False) -> bool:
+    """Salva no GSheets (produção) ou Parquet (local).
 
-    arquivo = DATA_DIR / f"{tabela}.parquet"
+    Retorna True se gravou, False se foi bloqueado por segurança.
+    `permitir_vazio=True` libera gravação vazia (usado só por 'Limpar').
+    """
+    tab = _resolve_tabela(tabela) or tabela
+    razao = _gravacao_bloqueada(tab, df, permitir_vazio)
+    if razao:
+        mensagem_erro(f"Gravação de '{tab}' BLOQUEADA: {razao}")
+        return False
+
+    if _usar_gsheets():
+        _salvar_gsheet(tab, df)
+        return True
+
+    arquivo = DATA_DIR / f"{tab}.parquet"
     if df.empty:
         if arquivo.exists():
             arquivo.unlink()
-        return
+        return True
     try:
         df_save = df.copy()
         if "data_dt" in df_save.columns:
@@ -494,7 +552,8 @@ def remover_por_fonte(tabela: str, fontes: list, mes: int = None, ano: int = Non
 
     n = int(mask.sum())
     if n > 0:
-        salvar_parquet(tabela, df[~mask].copy())
+        # remoção explícita: pode legitimamente esvaziar a tabela
+        salvar_parquet(tabela, df[~mask].copy(), permitir_vazio=True)
     return n
 
 def listar_cartoes_ativos() -> list:

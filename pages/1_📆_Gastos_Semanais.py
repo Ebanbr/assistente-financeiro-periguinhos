@@ -19,6 +19,7 @@ from utils import (esc,
     ler_json, salvar_json, invalidar_cache, gerar_id, agora,
     salvar_despesas_novas, listar_categorias,
 )
+from fatura_projection import projetar_parcelas, semana_do_mes
 
 configurar_pagina("Gastos Semanais", icone="📆")
 inicializar_dados()
@@ -68,6 +69,7 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
         with cg2:
             g_cat = st.selectbox("Categoria:", listar_categorias("despesa"))
             g_pag = st.selectbox("Forma de pagamento:", ["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"])
+            g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
         with cg3:
             g_valor = st.number_input("Valor (R$):", min_value=0.0, value=None,
                                       step=None, placeholder="0,00", format="%.2f")
@@ -82,7 +84,7 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
                     "id": gerar_id(), "data": g_data.strftime("%Y-%m-%d"),
                     "descricao": g_desc.strip(), "categoria": g_cat,
                     "valor": round(float(g_valor), 2), "forma_pagamento": g_pag,
-                    "banco": "", "status": "Pago", "observacao": "",
+                    "banco": g_cartao if g_pag == "💳 Crédito" else "", "status": "Pago", "observacao": "",
                     "fonte": FONTE_SEMANAL, "criado_em": agora(),
                 }])
                 n = salvar_despesas_novas(nova)
@@ -104,6 +106,73 @@ if not df_d.empty and "data" in df_d.columns:
     eh_semanal = df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str) == FONTE_SEMANAL
     na_semana  = (df_d["_dt"].dt.date >= SEG) & (df_d["_dt"].dt.date <= DOM)
     df_sem = df_d[eh_semanal & na_semana].copy()
+
+# ── Estimativa da fatura do cartão ────────────────────────────
+st.markdown('<div class="p-title"><span class="tbar"></span> Fatura estimada do mês</div>',
+            unsafe_allow_html=True)
+col_card, col_ref = st.columns([2, 1])
+with col_card:
+    cartao_proj = st.selectbox("Cartão:", ["C6 BRU", "C6 PRI", "Nubank"], key="cartao_projecao")
+with col_ref:
+    st.text_input("Mês de referência:", value=HOJE.strftime("%m/%Y"), disabled=True)
+
+proj = projetar_parcelas(df_d, HOJE.year, HOJE.month, cartao_proj)
+base_parcelada = proj["total"]
+
+if not df_d.empty:
+    _fon = df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str)
+    _fp = df_d.get("forma_pagamento", pd.Series("", index=df_d.index)).astype(str).str.casefold()
+    _bk = df_d.get("banco", pd.Series("", index=df_d.index)).astype(str).str.strip().str.casefold()
+    _dt = pd.to_datetime(df_d.get("data"), errors="coerce")
+    _mes = (_dt.dt.month == HOJE.month) & (_dt.dt.year == HOJE.year)
+    _credito = _fp.str.contains("crédito|credito", regex=True, na=False)
+    sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito & (_bk == cartao_proj.casefold()) & _mes].copy()
+else:
+    sem_credito = pd.DataFrame()
+
+if not sem_credito.empty:
+    sem_credito["_semana_mes"] = semana_do_mes(sem_credito["data"])
+    por_semana = sem_credito.groupby("_semana_mes")["valor"].sum().to_dict()
+else:
+    por_semana = {}
+
+gastos_credito = float(sum(por_semana.values()))
+estimada = base_parcelada + gastos_credito
+f1, f2, f3 = st.columns(3)
+f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help="Parcelas de compras anteriores que vencem neste mês.")
+f2.metric("Novos gastos no crédito", formatar_moeda(gastos_credito))
+f3.metric("Fatura estimada", formatar_moeda(estimada))
+
+acumulado = base_parcelada
+linhas_proj = []
+for n_sem in range(1, 6):
+    valor_sem = float(por_semana.get(n_sem, 0))
+    acumulado += valor_sem
+    linhas_proj.append({"Semana": f"Semana {n_sem}", "Novos gastos": valor_sem, "Fatura acumulada": acumulado})
+st.dataframe(
+    pd.DataFrame(linhas_proj), hide_index=True, use_container_width=True,
+    column_config={
+        "Novos gastos": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Fatura acumulada": st.column_config.NumberColumn(format="R$ %.2f"),
+    },
+)
+
+if proj["candidatos"] and not proj["com_parcela"]:
+    st.warning("⚠️ As faturas antigas não guardaram a coluna Parcela. A base inicial aparece zerada até que uma fatura "
+               "seja reimportada pelo importador atualizado; não estimarei valores sem comprovação.")
+elif proj["candidatos"] > proj["com_parcela"]:
+    st.caption(f"Cobertura das parcelas: {proj['com_parcela']} de {proj['candidatos']} lançamentos anteriores possuem metadados.")
+
+with st.expander("🔎 Ver parcelas que formam o valor inicial"):
+    if proj["itens"].empty:
+        st.caption("Nenhuma parcela comprovada para este mês.")
+    else:
+        _pi = proj["itens"][["descricao", "_valor", "parcela_projetada", "_pt"]].copy()
+        _pi.columns = ["Descrição", "Valor", "Parcela atual", "Total de parcelas"]
+        st.dataframe(_pi, hide_index=True, use_container_width=True,
+                     column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")})
+
+st.divider()
 
 total = df_sem["valor"].sum() if not df_sem.empty else 0.0
 restante = max(limite - total, 0) if limite > 0 else 0
@@ -162,7 +231,7 @@ else:
     # ── Editar / excluir ─────────────────────────────────────
     with st.expander("✏️ Editar ou excluir gastos"):
         st.caption("Altere qualquer célula ou marque 🗑️ para excluir. Depois clique em **Salvar**.")
-        df_ed = df_sem[["data", "descricao", "categoria", "valor", "forma_pagamento", "id"]].copy()
+        df_ed = df_sem[["data", "descricao", "categoria", "valor", "forma_pagamento", "banco", "id"]].copy()
         df_ed["data"] = pd.to_datetime(df_ed["data"], errors="coerce").dt.date
         df_ed["id"]   = df_ed["id"].astype(str)
         df_ed.insert(0, "🗑️", False)
@@ -175,9 +244,10 @@ else:
                 "categoria":       st.column_config.SelectboxColumn("Categoria", options=listar_categorias("despesa")),
                 "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.0),
                 "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
+                "banco":           st.column_config.SelectboxColumn("Cartão", options=["", "C6 BRU", "C6 PRI", "Nubank"]),
                 "id":              st.column_config.TextColumn("ID", disabled=True, width="small"),
             },
-            column_order=["🗑️", "data", "descricao", "categoria", "valor", "forma_pagamento"],
+            column_order=["🗑️", "data", "descricao", "categoria", "valor", "forma_pagamento", "banco"],
             hide_index=True, use_container_width=True, num_rows="fixed", key="editor_semana",
         )
         if st.button("💾 Salvar alterações", type="primary", use_container_width=True, key="btn_salvar_sem"):
@@ -196,6 +266,7 @@ else:
                         full.loc[m, "categoria"]       = str(row["categoria"])
                         full.loc[m, "valor"]           = round(float(row["valor"] or 0), 2)
                         full.loc[m, "forma_pagamento"] = str(row["forma_pagamento"])
+                        full.loc[m, "banco"]           = str(row["banco"]) if "crédito" in str(row["forma_pagamento"]).casefold() else ""
                 if ids_del:
                     full = full[~full["id"].astype(str).isin(ids_del)]
                 salvar_parquet("despesas", full)

@@ -1409,6 +1409,10 @@ with tab_import:
                     df["_data_orig"] = df["Data de Compra"].apply(to_br)
                     df["_desc"] = df["Descrição"].str.strip()
                     df["_cat"]  = df["Categoria"].apply(_categoria_c6)
+                    df["_parcela"] = df.get("Parcela", pd.Series("", index=df.index)).astype(str).str.strip()
+                    _parts = df["_parcela"].str.extract(r"^\s*(\d+)\s*/\s*(\d+)\s*$")
+                    df["_parcela_atual"] = pd.to_numeric(_parts[0], errors="coerce")
+                    df["_parcelas_total"] = pd.to_numeric(_parts[1], errors="coerce")
                     desp  = df[df["_val"] > 0].copy()
                     devol = df[df["_val"] < 0].copy()
                     if not desp.empty:
@@ -1548,6 +1552,8 @@ with tab_import:
                                            "categoria": r["_cat"], "valor": round(float(r["_valor"]), 2),
                                            "forma_pagamento": "💳 Crédito", "banco": cartao_sel,
                                            "status": "Pago", "observacao": f"Compra em {r['_data_orig']}",
+                                           "data_compra": r["_data_orig"], "parcela": r["_parcela"],
+                                           "parcela_atual": r["_parcela_atual"], "parcelas_total": r["_parcelas_total"],
                                            "fonte": "C6 Bank", "criado_em": agora()}
                                           for _, r in df_desp.iterrows()]
                                 df_nov = aplicar_mapeamentos(pd.DataFrame(linhas), tipo="despesa")

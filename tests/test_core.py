@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 import utils
+from fatura_projection import parse_parcela, projetar_parcelas, semana_do_mes
 
 
 # ── Datas: a área que mais deu bug (mês trocado) ────────────
@@ -79,3 +80,33 @@ def test_gerar_id_completo_e_unico():
 def test_formatar_moeda():
     assert utils.formatar_moeda(1234.5) == "R$ 1.234,50"
     assert utils.formatar_moeda(0) == "R$ 0,00"
+
+
+def test_projecao_parcelas_respeita_mes_e_cartao():
+    df = pd.DataFrame([
+        {"data": "2026-08-01", "valor": 100, "descricao": "Compra A", "fonte": "C6 Bank", "banco": "C6 BRU", "parcela_atual": 3, "parcelas_total": 5},
+        {"data": "2026-08-01", "valor": 80, "descricao": "Finalizada", "fonte": "C6 Bank", "banco": "C6 BRU", "parcela_atual": 5, "parcelas_total": 5},
+        {"data": "2026-08-01", "valor": 50, "descricao": "Outro cartao", "fonte": "C6 Bank", "banco": "C6 PRI", "parcela_atual": 1, "parcelas_total": 4},
+    ])
+    out = projetar_parcelas(df, 2026, 9, "C6 BRU")
+    assert out["total"] == 100
+    assert out["itens"].iloc[0]["parcela_projetada"] == 4
+
+
+def test_parse_parcela_e_semana_do_mes():
+    assert parse_parcela("3/10") == (3, 10)
+    assert parse_parcela("0/10") is None
+    assert semana_do_mes(pd.Series(["2026-09-01", "2026-09-08", "2026-09-29"])).tolist() == [1, 2, 5]
+
+
+def test_projecao_nao_duplica_mesmas_parcelas_de_faturas_anteriores():
+    df = pd.DataFrame([
+        {"data": "2026-07-01", "data_compra": "10/05/2026", "descricao": "Loja", "valor": 100,
+         "fonte": "C6 Bank", "banco": "C6 BRU", "parcela_atual": 3, "parcelas_total": 10},
+        {"data": "2026-08-01", "data_compra": "10/05/2026", "descricao": "Loja", "valor": 100,
+         "fonte": "C6 Bank", "banco": "C6 BRU", "parcela_atual": 4, "parcelas_total": 10},
+    ])
+    out = projetar_parcelas(df, 2026, 9, "C6 BRU")
+    assert out["total"] == 100
+    assert len(out["itens"]) == 1
+    assert out["itens"].iloc[0]["parcela_projetada"] == 5

@@ -88,7 +88,8 @@ def _parse_data_robusta(serie) -> pd.Series:
     s_data = s.str.split(" ").str[0].str.split("T").str[0]
     # ISO = começa com ano de 4 dígitos (aceita '-' ou '/'); pandas trata year-first
     # sempre como AAAA-MM-DD, então não há ambiguidade de dayfirst aqui.
-    iso_mask = s_data.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$")
+    # Ausências não são ISO: a máscara precisa ser booleana para usar ~.
+    iso_mask = s_data.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$", na=False)
     iso_parsed = pd.to_datetime(s_data.where(iso_mask).str.replace("/", "-", regex=False),
                                 format="%Y-%m-%d", errors="coerce")
     # Resto: formato brasileiro, dia primeiro

@@ -26,6 +26,15 @@ def test_parse_data_invalida_vira_nat():
     got = utils._parse_data_robusta(pd.Series(["", "lixo", None]))
     assert got.isna().all()
 
+@pytest.mark.parametrize("ausente", [None, float("nan"), pd.NA, pd.NaT, "", "   "])
+def test_parse_data_ausente_nao_altera_datas_validas(ausente):
+    serie = pd.Series(["05/06/2026", ausente, "2026-07-05"], index=[10, 20, 30])
+    got = utils._parse_data_robusta(serie)
+    assert got.index.equals(serie.index)
+    assert got.loc[10] == pd.Timestamp("2026-06-05")
+    assert pd.isna(got.loc[20])
+    assert got.loc[30] == pd.Timestamp("2026-07-05")
+
 def test_normalizar_coluna_data_padroniza_iso():
     df = pd.DataFrame({"data": ["05/06/2026", "2025-01-10"]})
     out = utils._normalizar_coluna_data(df.copy())

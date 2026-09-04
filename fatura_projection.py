@@ -78,3 +78,20 @@ def semana_do_mes(datas):
     """Semana 1= dias 1-7, Semana 2=8-14, ... Semana 5=29-fim."""
     dt = pd.to_datetime(datas, errors="coerce")
     return ((dt.dt.day - 1) // 7 + 1).astype("Int64")
+
+
+def mascara_credito_cartao(df, cartao, cartao_legado="C6 BRU"):
+    """Seleciona compras no credito do cartao.
+
+    Antes de o campo ``banco`` existir nos gastos semanais, as compras no
+    credito eram salvas em branco. Apenas nesse legado, branco pertence ao
+    cartao padrao C6 BRU; novos registros sempre gravam o cartao explicitamente.
+    """
+    fp = df.get("forma_pagamento", pd.Series("", index=df.index)).astype(str).str.casefold()
+    banco = df.get("banco", pd.Series("", index=df.index)).astype(str).str.strip().str.casefold()
+    alvo = str(cartao).strip().casefold()
+    eh_credito = fp.str.contains("crédito|credito", regex=True, na=False)
+    eh_cartao = banco.eq(alvo)
+    if alvo == str(cartao_legado).strip().casefold():
+        eh_cartao = eh_cartao | banco.eq("")
+    return eh_credito & eh_cartao

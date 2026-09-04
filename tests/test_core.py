@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import utils
-from fatura_projection import parse_parcela, projetar_parcelas, semana_do_mes
+from fatura_projection import parse_parcela, projetar_parcelas, semana_do_mes, mascara_credito_cartao
 
 
 # ── Datas: a área que mais deu bug (mês trocado) ────────────
@@ -114,3 +114,13 @@ def test_projecao_nao_duplica_mesmas_parcelas_de_faturas_anteriores():
 
 def test_resolve_tabela_faturas_base():
     assert utils._resolve_tabela("faturas_base") == "faturas_base"
+
+
+def test_credito_legado_sem_cartao_so_entra_no_c6_bru():
+    df = pd.DataFrame([
+        {"forma_pagamento": "💳 Crédito", "banco": ""},
+        {"forma_pagamento": "💳 Crédito", "banco": "C6 PRI"},
+        {"forma_pagamento": "📱 PIX", "banco": ""},
+    ])
+    assert mascara_credito_cartao(df, "C6 BRU").tolist() == [True, False, False]
+    assert mascara_credito_cartao(df, "C6 PRI").tolist() == [False, True, False]

@@ -19,7 +19,7 @@ from utils import (esc,
     ler_json, salvar_json, invalidar_cache, gerar_id, agora,
     salvar_despesas_novas, listar_categorias,
 )
-from fatura_projection import projetar_parcelas, semana_do_mes
+from fatura_projection import projetar_parcelas, semana_do_mes, mascara_credito_cartao
 
 configurar_pagina("Gastos Semanais", icone="📆")
 inicializar_dados()
@@ -163,12 +163,10 @@ base_parcelada = base_manual if base_manual is not None else proj["total"]
 
 if not df_d.empty:
     _fon = df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str)
-    _fp = df_d.get("forma_pagamento", pd.Series("", index=df_d.index)).astype(str).str.casefold()
-    _bk = df_d.get("banco", pd.Series("", index=df_d.index)).astype(str).str.strip().str.casefold()
     _dt = pd.to_datetime(df_d.get("data"), errors="coerce")
     _mes = (_dt.dt.month == HOJE.month) & (_dt.dt.year == HOJE.year)
-    _credito = _fp.str.contains("crédito|credito", regex=True, na=False)
-    sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito & (_bk == cartao_proj.casefold()) & _mes].copy()
+    _credito_cartao = mascara_credito_cartao(df_d, cartao_proj)
+    sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito_cartao & _mes].copy()
 else:
     sem_credito = pd.DataFrame()
 
@@ -185,6 +183,11 @@ _origem_base = "valor fixado por você" if base_manual is not None else "parcela
 f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help=_origem_base)
 f2.metric("Novos gastos no crédito", formatar_moeda(gastos_credito))
 f3.metric("Fatura estimada", formatar_moeda(estimada))
+
+if cartao_proj == "C6 BRU" and not sem_credito.empty:
+    _sem_banco = sem_credito.get("banco", pd.Series("", index=sem_credito.index)).astype(str).str.strip().eq("").sum()
+    if _sem_banco:
+        st.caption(f"ℹ️ {_sem_banco} compra(s) antiga(s) no crédito sem cartão informado foram consideradas como C6 BRU.")
 
 acumulado = base_parcelada
 linhas_proj = []

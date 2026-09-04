@@ -117,7 +117,49 @@ with col_ref:
     st.text_input("Mês de referência:", value=HOJE.strftime("%m/%Y"), disabled=True)
 
 proj = projetar_parcelas(df_d, HOJE.year, HOJE.month, cartao_proj)
-base_parcelada = proj["total"]
+
+# O valor informado pelo usuário é a fonte principal da estimativa. É salvo em
+# uma aba própria do Sheets para sobreviver aos reinícios do Streamlit Cloud.
+df_bases = ler_csv("faturas_base")
+if df_bases.empty:
+    df_bases = pd.DataFrame(columns=["id", "ano", "mes", "cartao", "valor", "criado_em"])
+for _col in ["ano", "mes", "valor"]:
+    if _col in df_bases.columns:
+        df_bases[_col] = pd.to_numeric(df_bases[_col], errors="coerce")
+_mask_base = (
+    (df_bases.get("ano", pd.Series(dtype=float)) == HOJE.year)
+    & (df_bases.get("mes", pd.Series(dtype=float)) == HOJE.month)
+    & (df_bases.get("cartao", pd.Series(dtype=str)).astype(str).str.strip().str.casefold() == cartao_proj.casefold())
+) if not df_bases.empty else pd.Series(dtype=bool)
+_registro_base = df_bases[_mask_base] if len(_mask_base) else pd.DataFrame()
+base_manual = float(_registro_base.iloc[-1]["valor"]) if not _registro_base.empty else None
+
+with st.expander("✍️ Definir valor inicial fixo", expanded=base_manual is None):
+    st.caption(f"Este valor ficará vinculado a **{cartao_proj} · {HOJE.strftime('%m/%Y')}**.")
+    novo_base = st.number_input(
+        "Valor inicial da fatura (R$):", min_value=0.0,
+        value=base_manual, step=None, placeholder="0,00", format="%.2f",
+        key=f"base_fatura_{cartao_proj}_{HOJE.year}_{HOJE.month}",
+    )
+    if st.button("💾 Salvar valor inicial", type="primary", use_container_width=True,
+                 key=f"salvar_base_{cartao_proj}_{HOJE.year}_{HOJE.month}"):
+        if novo_base is None:
+            mensagem_erro("Informe o valor inicial da fatura.")
+        else:
+            df_bases = df_bases[~_mask_base].copy() if len(_mask_base) else df_bases.copy()
+            nova_base = pd.DataFrame([{
+                "id": gerar_id(), "ano": HOJE.year, "mes": HOJE.month,
+                "cartao": cartao_proj, "valor": round(float(novo_base), 2), "criado_em": agora(),
+            }])
+            ok_base = salvar_parquet("faturas_base", pd.concat([df_bases, nova_base], ignore_index=True))
+            if ok_base:
+                invalidar_cache("faturas_base")
+                mensagem_sucesso(f"Valor inicial de {formatar_moeda(novo_base)} salvo para {HOJE.strftime('%m/%Y')}.")
+                st.rerun()
+            else:
+                mensagem_erro("Não foi possível salvar o valor inicial.")
+
+base_parcelada = base_manual if base_manual is not None else proj["total"]
 
 if not df_d.empty:
     _fon = df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str)
@@ -139,7 +181,8 @@ else:
 gastos_credito = float(sum(por_semana.values()))
 estimada = base_parcelada + gastos_credito
 f1, f2, f3 = st.columns(3)
-f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help="Parcelas de compras anteriores que vencem neste mês.")
+_origem_base = "valor fixado por você" if base_manual is not None else "parcelas identificadas"
+f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help=_origem_base)
 f2.metric("Novos gastos no crédito", formatar_moeda(gastos_credito))
 f3.metric("Fatura estimada", formatar_moeda(estimada))
 
@@ -157,7 +200,9 @@ st.dataframe(
     },
 )
 
-if proj["candidatos"] and not proj["com_parcela"]:
+if base_manual is not None:
+    st.caption(f"🔒 Base mensal fixada manualmente: **{formatar_moeda(base_manual)}**. A projeção por parcelas não altera este valor.")
+elif proj["candidatos"] and not proj["com_parcela"]:
     st.warning("⚠️ As faturas antigas não guardaram a coluna Parcela. A base inicial aparece zerada até que uma fatura "
                "seja reimportada pelo importador atualizado; não estimarei valores sem comprovação.")
 elif proj["candidatos"] > proj["com_parcela"]:

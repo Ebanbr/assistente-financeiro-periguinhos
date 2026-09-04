@@ -110,3 +110,7 @@ def test_projecao_nao_duplica_mesmas_parcelas_de_faturas_anteriores():
     assert out["total"] == 100
     assert len(out["itens"]) == 1
     assert out["itens"].iloc[0]["parcela_projetada"] == 5
+
+
+def test_resolve_tabela_faturas_base():
+    assert utils._resolve_tabela("faturas_base") == "faturas_base"

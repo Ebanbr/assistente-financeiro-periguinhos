@@ -181,8 +181,9 @@ def _dia_fechamento(cartao, ano, mes):
     encontrados = df_fechamentos[mask]
     return int(encontrados.iloc[-1]["dia"]) if not encontrados.empty else 4
 
-dia_mes_atual = _dia_fechamento(cartao_proj, HOJE.year, HOJE.month)
-ano_atual_fat, mes_atual_fat = competencia_fatura(HOJE, dia_mes_atual)
+# A competência exibida usa o padrão contratual. O fechamento efetivo informa
+# onde o ciclo seguinte começa (pode antecipar de 4 para 3, por exemplo).
+ano_atual_fat, mes_atual_fat = competencia_fatura(HOJE, 4)
 _ref_atual = pd.Timestamp(year=ano_atual_fat, month=mes_atual_fat, day=1)
 _refs = {_ref_atual + pd.DateOffset(months=n) for n in range(-1, 13)}
 if not df_bases.empty:
@@ -197,19 +198,19 @@ with col_ref:
                              help="C6 fecha dia 4: compras do dia 5 em diante entram na fatura seguinte.")
 ref_ts = _refs[_labels_ref.index(ref_label)]
 ano_fatura, mes_fatura = int(ref_ts.year), int(ref_ts.month)
-dia_fechamento = _dia_fechamento(cartao_proj, ano_fatura, mes_fatura)
-_ref_anterior = ref_ts - pd.DateOffset(months=1)
-dia_fechamento_anterior = _dia_fechamento(cartao_proj, int(_ref_anterior.year), int(_ref_anterior.month))
+dia_fechamento_anterior = _dia_fechamento(cartao_proj, ano_fatura, mes_fatura)
+_ref_seguinte = ref_ts + pd.DateOffset(months=1)
+dia_fechamento = _dia_fechamento(cartao_proj, int(_ref_seguinte.year), int(_ref_seguinte.month))
 inicio_ciclo, fim_ciclo = intervalo_fatura(
     ano_fatura, mes_fatura, dia_fechamento, dia_fechamento_anterior,
 )
 st.caption(f"Ciclo considerado: **{inicio_ciclo.strftime('%d/%m/%Y')} a {fim_ciclo.strftime('%d/%m/%Y')}**")
 
-with st.expander("🗓️ Informar fechamento real desta fatura"):
+with st.expander("🗓️ Informar fechamento que iniciou este ciclo"):
     novo_fechamento = st.number_input(
-        f"Dia em que a fatura {ref_label} realmente fechou:", min_value=1, max_value=28,
-        value=dia_fechamento, step=1, key=f"fechamento_{cartao_proj}_{ano_fatura}_{mes_fatura}",
-        help="Use o dia efetivo mostrado pelo banco. O padrão continua sendo dia 4.",
+        f"Dia em que a fatura anterior realmente fechou:", min_value=1, max_value=28,
+        value=dia_fechamento_anterior, step=1, key=f"fechamento_{cartao_proj}_{ano_fatura}_{mes_fatura}",
+        help="Se fechou dia 3, os novos gastos desta fatura começam no dia 4. O padrão é dia 4.",
     )
     if st.button("💾 Salvar fechamento desta fatura", use_container_width=True,
                  key=f"salvar_fechamento_{cartao_proj}_{ano_fatura}_{mes_fatura}"):
@@ -224,7 +225,7 @@ with st.expander("🗓️ Informar fechamento real desta fatura"):
         }])
         if salvar_parquet("fechamentos_fatura", pd.concat([_base_fech, _novo_fech], ignore_index=True)):
             invalidar_cache("fechamentos_fatura")
-            mensagem_sucesso(f"Fechamento de {ref_label} definido no dia {int(novo_fechamento)}.")
+            mensagem_sucesso(f"O ciclo da fatura {ref_label} passará a começar após o dia {int(novo_fechamento)}.")
             st.rerun()
 
 proj = projetar_parcelas(df_d, ano_fatura, mes_fatura, cartao_proj)
@@ -238,13 +239,23 @@ _mask_base = (
 ) if not df_bases.empty else pd.Series(dtype=bool)
 _registro_base = df_bases[_mask_base] if len(_mask_base) else pd.DataFrame()
 base_manual = float(_registro_base.iloc[-1]["valor"]) if not _registro_base.empty else None
+valor_atual_banco = None
+if not _registro_base.empty and "valor_atual" in _registro_base.columns:
+    _vab = pd.to_numeric(pd.Series([_registro_base.iloc[-1].get("valor_atual")]), errors="coerce").iloc[0]
+    valor_atual_banco = float(_vab) if pd.notna(_vab) else None
 
-with st.expander("✍️ Definir valor inicial fixo", expanded=base_manual is None):
+with st.expander("✍️ Definir valores informados pelo banco", expanded=base_manual is None):
     st.caption(f"Este valor ficará vinculado a **{cartao_proj} · {ref_label}**.")
     novo_base = st.number_input(
         "Valor inicial da fatura (R$):", min_value=0.0,
         value=base_manual, step=None, placeholder="0,00", format="%.2f",
         key=f"base_fatura_{cartao_proj}_{ano_fatura}_{mes_fatura}",
+    )
+    novo_valor_atual = st.number_input(
+        "Valor atual mostrado no banco (opcional):", min_value=0.0,
+        value=valor_atual_banco, step=None, placeholder="0,00", format="%.2f",
+        key=f"atual_fatura_{cartao_proj}_{ano_fatura}_{mes_fatura}",
+        help="Serve para conferir a soma do dashboard; não altera os lançamentos.",
     )
     if st.button("💾 Salvar valor inicial", type="primary", use_container_width=True,
                  key=f"salvar_base_{cartao_proj}_{ano_fatura}_{mes_fatura}"):
@@ -254,7 +265,9 @@ with st.expander("✍️ Definir valor inicial fixo", expanded=base_manual is No
             df_bases = df_bases[~_mask_base].copy() if len(_mask_base) else df_bases.copy()
             nova_base = pd.DataFrame([{
                 "id": gerar_id(), "ano": ano_fatura, "mes": mes_fatura,
-                "cartao": cartao_proj, "valor": round(float(novo_base), 2), "criado_em": agora(),
+                "cartao": cartao_proj, "valor": round(float(novo_base), 2),
+                "valor_atual": round(float(novo_valor_atual), 2) if novo_valor_atual is not None else "",
+                "criado_em": agora(),
             }])
             ok_base = salvar_parquet("faturas_base", pd.concat([df_bases, nova_base], ignore_index=True))
             if ok_base:
@@ -285,11 +298,20 @@ else:
 
 gastos_credito = float(sum(por_semana.values()))
 estimada = base_parcelada + gastos_credito
-f1, f2, f3 = st.columns(3)
+f1, f2, f3, f4 = st.columns(4)
 _origem_base = "valor fixado por você" if base_manual is not None else "parcelas identificadas"
 f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help=_origem_base)
 f2.metric("Novos gastos no crédito", formatar_moeda(gastos_credito))
 f3.metric("Fatura estimada", formatar_moeda(estimada))
+f4.metric("Valor no banco", formatar_moeda(valor_atual_banco) if valor_atual_banco is not None else "não informado")
+
+if valor_atual_banco is not None:
+    _diferenca_banco = round(estimada - valor_atual_banco, 2)
+    if abs(_diferenca_banco) <= 0.01:
+        st.success("✅ Dashboard e banco estão conciliados nos centavos.")
+    else:
+        _sentido = "a mais" if _diferenca_banco > 0 else "a menos"
+        st.warning(f"⚠️ O dashboard está {formatar_moeda(abs(_diferenca_banco))} {_sentido} que o banco.")
 
 if cartao_proj == "C6 BRU" and not sem_credito.empty:
     _sem_banco = sem_credito.get("banco", pd.Series("", index=sem_credito.index)).astype(str).str.strip().eq("").sum()

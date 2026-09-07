@@ -11,6 +11,7 @@ import utils
 from fatura_projection import (
     parse_parcela, projetar_parcelas, semana_do_mes, mascara_credito_cartao,
     inicio_semana, competencia_fatura, intervalo_fatura, semana_no_ciclo_fatura,
+    aplicar_edicoes_semanais,
 )
 
 
@@ -137,3 +138,21 @@ def test_semana_calendario_e_ciclo_fatura_dia_4():
     assert intervalo_fatura(2026, 10, 4) == (date(2026, 9, 5), date(2026, 10, 4))
     semanas = semana_no_ciclo_fatura(pd.Series(["2026-09-05", "2026-09-11", "2026-09-12", "2026-10-04"]), 2026, 10, 4)
     assert semanas.tolist() == [1, 1, 2, 5]
+
+
+def test_editar_e_excluir_diretamente_no_historico_semanal():
+    full = pd.DataFrame([
+        {"id": "a", "data": "2026-09-01", "descricao": "Antigo", "categoria": "Outros", "valor": 10., "forma_pagamento": "💳 Crédito", "banco": "C6 BRU"},
+        {"id": "b", "data": "2026-09-02", "descricao": "Excluir", "categoria": "Outros", "valor": 20, "forma_pagamento": "📱 PIX", "banco": ""},
+    ])
+    editado = pd.DataFrame([
+        {"Excluir": False, "id": "a", "data": date(2026, 9, 8), "descricao": "Corrigido", "categoria": "Mercado", "valor": 15.5, "forma_pagamento": "📱 PIX", "banco": "C6 BRU"},
+        {"Excluir": True, "id": "b", "data": date(2026, 9, 2), "descricao": "Excluir", "categoria": "Outros", "valor": 20, "forma_pagamento": "📱 PIX", "banco": ""},
+    ])
+    out, removidos = aplicar_edicoes_semanais(full, editado)
+    assert removidos == 1
+    assert out["id"].tolist() == ["a"]
+    assert out.iloc[0]["data"] == "2026-09-08"
+    assert out.iloc[0]["descricao"] == "Corrigido"
+    assert out.iloc[0]["valor"] == 15.5
+    assert out.iloc[0]["banco"] == ""

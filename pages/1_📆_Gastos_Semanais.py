@@ -22,6 +22,7 @@ from utils import (esc,
 from fatura_projection import (
     projetar_parcelas, mascara_credito_cartao, inicio_semana,
     competencia_fatura, intervalo_fatura, semana_no_ciclo_fatura,
+    aplicar_edicoes_semanais,
 )
 
 configurar_pagina("Gastos Semanais", icone="📆")
@@ -34,6 +35,7 @@ HOJE = date.today()
 DIAS_NOME = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 cfg = ler_json(str(CONFIG_FILE))
+CATEGORIAS_DESPESA = listar_categorias("despesa")
 
 # ── Header ───────────────────────────────────────────────────
 st.markdown(f"""
@@ -103,7 +105,7 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
             g_data = st.date_input("Data:", value=semana_ref, max_value=HOJE,
                                    format="DD/MM/YYYY", help="Aceita lançamentos retroativos e os envia à semana correta.")
         with cg2:
-            g_cat = st.selectbox("Categoria:", listar_categorias("despesa"))
+            g_cat = st.selectbox("Categoria:", CATEGORIAS_DESPESA)
             g_pag = st.selectbox("Forma de pagamento:", ["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"])
             g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
         with cg3:
@@ -346,7 +348,7 @@ else:
                 "🗑️":              st.column_config.CheckboxColumn("🗑️", width="small"),
                 "data":            st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
                 "descricao":       st.column_config.TextColumn("Descrição", width="large"),
-                "categoria":       st.column_config.SelectboxColumn("Categoria", options=listar_categorias("despesa")),
+                "categoria":       st.column_config.SelectboxColumn("Categoria", options=CATEGORIAS_DESPESA),
                 "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.0),
                 "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
                 "banco":           st.column_config.SelectboxColumn("Cartão", options=["", "C6 BRU", "C6 PRI", "Nubank"]),
@@ -421,10 +423,40 @@ else:
             f"{formatar_moeda(_tot_h)} · {len(_hs)} lançamento(s){_tag_lim}",
             expanded=(_ini == SEG),
         ):
-            _view = _hs[["data", "descricao", "categoria", "forma_pagamento", "banco", "valor"]].copy()
-            _view["data"] = _hs["_dt_hist"].dt.strftime("%d/%m/%Y")
-            _view.columns = ["Data", "Descrição", "Categoria", "Forma", "Cartão", "Valor"]
-            st.dataframe(
-                _view, hide_index=True, use_container_width=True,
-                column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")},
+            _edit_hist = _hs[["data", "descricao", "categoria", "forma_pagamento", "banco", "valor", "id"]].copy()
+            _edit_hist["data"] = _hs["_dt_hist"].dt.date
+            _edit_hist.insert(0, "Excluir", False)
+            _editado_hist = st.data_editor(
+                _edit_hist, hide_index=True, use_container_width=True, num_rows="fixed",
+                key=f"editor_hist_{_chave}",
+                column_config={
+                    "Excluir":         st.column_config.CheckboxColumn("🗑️", width="small"),
+                    "data":            st.column_config.DateColumn("Data", format="DD/MM/YYYY", max_value=HOJE),
+                    "descricao":       st.column_config.TextColumn("Descrição", width="large"),
+                    "categoria":       st.column_config.SelectboxColumn("Categoria", options=CATEGORIAS_DESPESA),
+                    "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
+                    "banco":           st.column_config.SelectboxColumn("Cartão", options=["", "C6 BRU", "C6 PRI", "Nubank"]),
+                    "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.01),
+                    "id":              st.column_config.TextColumn("ID", disabled=True),
+                },
+                column_order=["Excluir", "data", "descricao", "categoria", "forma_pagamento", "banco", "valor"],
             )
+            if st.button("💾 Salvar alterações desta semana", type="primary", use_container_width=True,
+                         key=f"salvar_hist_{_chave}"):
+                _ativos_hist = _editado_hist[_editado_hist["Excluir"] != True]
+                if _ativos_hist["descricao"].astype(str).str.strip().eq("").any():
+                    mensagem_erro("A descrição não pode ficar vazia.")
+                elif pd.to_numeric(_ativos_hist["valor"], errors="coerce").fillna(0).le(0).any():
+                    mensagem_erro("O valor precisa ser maior que zero.")
+                elif _ativos_hist["data"].isna().any():
+                    mensagem_erro("A data não pode ficar vazia.")
+                else:
+                    _full_hist = ler_csv(DESPESAS_FILE)
+                    _full_hist, _n_del_hist = aplicar_edicoes_semanais(_full_hist, _editado_hist)
+                    if salvar_parquet("despesas", _full_hist, permitir_vazio=True):
+                        invalidar_cache("despesas")
+                        _msg_del = f" · {_n_del_hist} excluído(s)" if _n_del_hist else ""
+                        mensagem_sucesso(f"Alterações salvas{_msg_del}!")
+                        st.rerun()
+                    else:
+                        mensagem_erro("Não foi possível salvar as alterações.")

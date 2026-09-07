@@ -126,3 +126,35 @@ def mascara_credito_cartao(df, cartao, cartao_legado="C6 BRU"):
     if alvo == str(cartao_legado).strip().casefold():
         eh_cartao = eh_cartao | banco.eq("")
     return eh_credito & eh_cartao
+
+
+def aplicar_edicoes_semanais(df_completo, editado):
+    """Aplica edição/exclusão de uma tabela semanal usando o ID estável."""
+    full = df_completo.copy()
+    ids_excluir = set(
+        editado.loc[editado.get("Excluir", False) == True, "id"].astype(str)
+    ) if "Excluir" in editado.columns else set()
+    campos = ["data", "descricao", "categoria", "valor", "forma_pagamento", "banco"]
+    for _, row in editado.iterrows():
+        rid = str(row.get("id", ""))
+        if not rid or rid in ids_excluir:
+            continue
+        mask = full["id"].astype(str).eq(rid)
+        if not mask.any():
+            continue
+        for campo in campos:
+            if campo not in row.index:
+                continue
+            valor = row[campo]
+            if campo == "data":
+                valor = pd.Timestamp(valor).strftime("%Y-%m-%d") if pd.notna(valor) else ""
+            elif campo == "valor":
+                valor = round(float(valor), 2)
+            else:
+                valor = str(valor)
+            full.loc[mask, campo] = valor
+        if "forma_pagamento" in row.index and "crédito" not in str(row["forma_pagamento"]).casefold():
+            full.loc[mask, "banco"] = ""
+    if ids_excluir:
+        full = full[~full["id"].astype(str).isin(ids_excluir)].copy()
+    return full, len(ids_excluir)

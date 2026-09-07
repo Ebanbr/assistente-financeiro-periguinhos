@@ -353,7 +353,6 @@ with st.expander("🔎 Ver parcelas que formam o valor inicial"):
         st.dataframe(_pi, hide_index=True, use_container_width=True,
                      column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")})
 
-st.markdown("#### 📅 Parcelas comprometidas nos próximos meses")
 _linhas_futuras, _detalhes_futuros = [], []
 for _n_mes in range(1, 13):
     _ref_fut = ref_ts + pd.DateOffset(months=_n_mes)
@@ -376,18 +375,22 @@ for _n_mes in range(1, 13):
                 "Fatura": _ref_fut.strftime("%m/%Y"), "Descrição": _pf.get("descricao", ""),
                 "Parcela": f"{int(_pf['parcela_projetada'])}/{int(_pf['_pt'])}", "Valor": float(_pf["_valor"]),
             })
-st.dataframe(
-    pd.DataFrame(_linhas_futuras), hide_index=True, use_container_width=True,
-    column_config={"Comprometido": st.column_config.NumberColumn(format="R$ %.2f")},
-)
-with st.expander("🔎 Ver detalhamento das parcelas futuras"):
+_linhas_futuras_visiveis = [
+    linha for linha in _linhas_futuras
+    if float(linha["Comprometido"]) > 0 or linha["Origem"] == "Valor fixado"
+]
+if _linhas_futuras_visiveis:
+    st.markdown("#### 📅 Parcelas comprometidas nos próximos meses")
+    st.dataframe(
+        pd.DataFrame(_linhas_futuras_visiveis), hide_index=True, use_container_width=True,
+        column_config={"Comprometido": st.column_config.NumberColumn(format="R$ %.2f")},
+    )
     if _detalhes_futuros:
-        st.dataframe(
-            pd.DataFrame(_detalhes_futuros), hide_index=True, use_container_width=True,
-            column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")},
-        )
-    else:
-        st.caption("Nenhuma parcela futura comprovada nos dados importados.")
+        with st.expander("🔎 Ver detalhamento das parcelas futuras"):
+            st.dataframe(
+                pd.DataFrame(_detalhes_futuros), hide_index=True, use_container_width=True,
+                column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")},
+            )
 
 st.divider()
 

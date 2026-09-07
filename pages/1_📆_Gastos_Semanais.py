@@ -19,7 +19,10 @@ from utils import (esc,
     ler_json, salvar_json, invalidar_cache, gerar_id, agora,
     salvar_despesas_novas, listar_categorias,
 )
-from fatura_projection import projetar_parcelas, semana_do_mes, mascara_credito_cartao
+from fatura_projection import (
+    projetar_parcelas, mascara_credito_cartao, inicio_semana,
+    competencia_fatura, intervalo_fatura, semana_no_ciclo_fatura,
+)
 
 configurar_pagina("Gastos Semanais", icone="📆")
 inicializar_dados()
@@ -28,8 +31,6 @@ FONTE_SEMANAL = "Semanal"   # tag que mantém esses gastos separados do macro do
 ICE, AURORA, DESPESA, WARN = "#4FE3FF", "#39E0A6", "#FF5C7A", "#FFC24B"
 
 HOJE = date.today()
-SEG  = HOJE - timedelta(days=HOJE.weekday())     # segunda
-DOM  = SEG + timedelta(days=6)                    # domingo
 DIAS_NOME = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 cfg = ler_json(str(CONFIG_FILE))
@@ -37,26 +38,61 @@ cfg = ler_json(str(CONFIG_FILE))
 # ── Header ───────────────────────────────────────────────────
 st.markdown(f"""
 <div class="thesis">
-  <div class="eyebrow">Controle da semana · {SEG.strftime('%d/%m')} a {DOM.strftime('%d/%m')}</div>
+  <div class="eyebrow">Controle semanal · histórico por data</div>
   <div class="big" style="font-size:clamp(26px,4vw,40px)">Onde o dinheiro <em class="pos">está indo</em> esta semana</div>
   <div class="trow"><span class="pill mut">Independente do Notion · zera todo domingo</span></div>
 </div>
 """, unsafe_allow_html=True)
 st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-# ── Limite da semana ─────────────────────────────────────────
-limite = float(cfg.get("limite_semanal", 0.0) or 0.0)
-col_lim, col_btn = st.columns([3, 1])
-with col_lim:
-    novo_limite = st.number_input("💰 Limite de gastos da semana (R$):", min_value=0.0, step=50.0,
-                                  value=limite, help="Quanto você quer gastar no máximo nesta semana.")
-with col_btn:
-    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    if st.button("💾 Salvar limite", use_container_width=True):
-        cfg["limite_semanal"] = novo_limite
-        salvar_json(str(CONFIG_FILE), cfg)
-        mensagem_sucesso("Limite salvo!")
-        st.rerun()
+# ── Semana consultada + limite padrão/exceção ─────────────────
+semana_ref = st.date_input("📅 Semana para acompanhar:", value=HOJE, format="DD/MM/YYYY",
+                            help="Escolha qualquer dia; exibiremos a segunda a domingo correspondente.")
+SEG, DOM = inicio_semana(semana_ref), inicio_semana(semana_ref) + timedelta(days=6)
+st.caption(f"Exibindo **{SEG.strftime('%d/%m/%Y')} a {DOM.strftime('%d/%m/%Y')}**")
+
+df_limites = ler_csv("limites_semanais")
+if df_limites.empty:
+    df_limites = pd.DataFrame(columns=["id", "chave", "inicio_semana", "valor", "criado_em"])
+_valor_padrao = pd.to_numeric(
+    df_limites.loc[df_limites.get("chave", pd.Series(dtype=str)).astype(str) == "padrao", "valor"],
+    errors="coerce",
+)
+limite_padrao = float(_valor_padrao.iloc[-1]) if not _valor_padrao.empty else float(cfg.get("limite_semanal", 0) or 0)
+chave_semana = SEG.isoformat()
+_valor_excecao = pd.to_numeric(
+    df_limites.loc[df_limites.get("chave", pd.Series(dtype=str)).astype(str) == chave_semana, "valor"],
+    errors="coerce",
+)
+tem_excecao = not _valor_excecao.empty
+limite = float(_valor_excecao.iloc[-1]) if tem_excecao else limite_padrao
+
+with st.expander("💰 Configurar limites semanais"):
+    cl1, cl2 = st.columns(2)
+    with cl1:
+        novo_padrao = st.number_input("Limite padrão de toda semana (R$):", min_value=0.0,
+                                      value=limite_padrao, step=50.0, format="%.2f")
+        if st.button("💾 Salvar limite padrão", use_container_width=True):
+            base = df_limites[df_limites["chave"].astype(str) != "padrao"].copy()
+            linha = pd.DataFrame([{"id": gerar_id(), "chave": "padrao", "inicio_semana": "",
+                                   "valor": round(float(novo_padrao), 2), "criado_em": agora()}])
+            if salvar_parquet("limites_semanais", pd.concat([base, linha], ignore_index=True)):
+                invalidar_cache("limites_semanais"); mensagem_sucesso("Limite padrão salvo!"); st.rerun()
+    with cl2:
+        valor_semana = st.number_input(
+            f"Exceção para {SEG.strftime('%d/%m')}–{DOM.strftime('%d/%m')} (R$):",
+            min_value=0.0, value=limite if tem_excecao else limite_padrao, step=50.0, format="%.2f",
+        )
+        if st.button("💾 Salvar exceção desta semana", use_container_width=True):
+            base = df_limites[df_limites["chave"].astype(str) != chave_semana].copy()
+            linha = pd.DataFrame([{"id": gerar_id(), "chave": chave_semana, "inicio_semana": chave_semana,
+                                   "valor": round(float(valor_semana), 2), "criado_em": agora()}])
+            if salvar_parquet("limites_semanais", pd.concat([base, linha], ignore_index=True)):
+                invalidar_cache("limites_semanais"); mensagem_sucesso("Exceção semanal salva!"); st.rerun()
+        if tem_excecao and st.button("↩️ Voltar ao limite padrão nesta semana", use_container_width=True):
+            base = df_limites[df_limites["chave"].astype(str) != chave_semana].copy()
+            if salvar_parquet("limites_semanais", base, permitir_vazio=True):
+                invalidar_cache("limites_semanais"); st.rerun()
 
 # ── Lançar gasto ─────────────────────────────────────────────
 with st.expander("➕ Lançar gasto da semana", expanded=False):
@@ -64,8 +100,8 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
         cg1, cg2, cg3 = st.columns([2, 2, 1])
         with cg1:
             g_desc = st.text_input("Descrição:", placeholder="ex: Padaria")
-            g_data = st.date_input("Data:", value=HOJE, min_value=SEG, max_value=DOM,
-                                   format="DD/MM/YYYY", help="Só aceita datas desta semana.")
+            g_data = st.date_input("Data:", value=semana_ref, max_value=HOJE,
+                                   format="DD/MM/YYYY", help="Aceita lançamentos retroativos e os envia à semana correta.")
         with cg2:
             g_cat = st.selectbox("Categoria:", listar_categorias("despesa"))
             g_pag = st.selectbox("Forma de pagamento:", ["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"])
@@ -110,51 +146,68 @@ if not df_d.empty and "data" in df_d.columns:
 # ── Estimativa da fatura do cartão ────────────────────────────
 st.markdown('<div class="p-title"><span class="tbar"></span> Fatura estimada do mês</div>',
             unsafe_allow_html=True)
-col_card, col_ref = st.columns([2, 1])
-with col_card:
-    cartao_proj = st.selectbox("Cartão:", ["C6 BRU", "C6 PRI", "Nubank"], key="cartao_projecao")
-with col_ref:
-    st.text_input("Mês de referência:", value=HOJE.strftime("%m/%Y"), disabled=True)
 
-proj = projetar_parcelas(df_d, HOJE.year, HOJE.month, cartao_proj)
-
-# O valor informado pelo usuário é a fonte principal da estimativa. É salvo em
-# uma aba própria do Sheets para sobreviver aos reinícios do Streamlit Cloud.
 df_bases = ler_csv("faturas_base")
 if df_bases.empty:
     df_bases = pd.DataFrame(columns=["id", "ano", "mes", "cartao", "valor", "criado_em"])
 for _col in ["ano", "mes", "valor"]:
     if _col in df_bases.columns:
         df_bases[_col] = pd.to_numeric(df_bases[_col], errors="coerce")
+
+ano_atual_fat, mes_atual_fat = competencia_fatura(HOJE, 4)
+_ref_atual = pd.Timestamp(year=ano_atual_fat, month=mes_atual_fat, day=1)
+_refs = {_ref_atual + pd.DateOffset(months=n) for n in (-1, 0, 1)}
+if not df_bases.empty:
+    for _, _rb in df_bases.dropna(subset=["ano", "mes"]).iterrows():
+        _refs.add(pd.Timestamp(year=int(_rb["ano"]), month=int(_rb["mes"]), day=1))
+_refs = sorted(_refs)
+_labels_ref = [r.strftime("%m/%Y") for r in _refs]
+_default_ref = _labels_ref.index(_ref_atual.strftime("%m/%Y"))
+
+col_card, col_ref = st.columns([2, 1])
+with col_card:
+    cartao_proj = st.selectbox("Cartão:", ["C6 BRU", "C6 PRI", "Nubank"], key="cartao_projecao")
+with col_ref:
+    ref_label = st.selectbox("Fatura de referência:", _labels_ref, index=_default_ref,
+                             help="C6 fecha dia 4: compras do dia 5 em diante entram na fatura seguinte.")
+ref_ts = _refs[_labels_ref.index(ref_label)]
+ano_fatura, mes_fatura = int(ref_ts.year), int(ref_ts.month)
+inicio_ciclo, fim_ciclo = intervalo_fatura(ano_fatura, mes_fatura, 4)
+st.caption(f"Ciclo considerado: **{inicio_ciclo.strftime('%d/%m/%Y')} a {fim_ciclo.strftime('%d/%m/%Y')}**")
+
+proj = projetar_parcelas(df_d, ano_fatura, mes_fatura, cartao_proj)
+
+# O valor informado pelo usuário é a fonte principal da estimativa. É salvo em
+# uma aba própria do Sheets para sobreviver aos reinícios do Streamlit Cloud.
 _mask_base = (
-    (df_bases.get("ano", pd.Series(dtype=float)) == HOJE.year)
-    & (df_bases.get("mes", pd.Series(dtype=float)) == HOJE.month)
+    (df_bases.get("ano", pd.Series(dtype=float)) == ano_fatura)
+    & (df_bases.get("mes", pd.Series(dtype=float)) == mes_fatura)
     & (df_bases.get("cartao", pd.Series(dtype=str)).astype(str).str.strip().str.casefold() == cartao_proj.casefold())
 ) if not df_bases.empty else pd.Series(dtype=bool)
 _registro_base = df_bases[_mask_base] if len(_mask_base) else pd.DataFrame()
 base_manual = float(_registro_base.iloc[-1]["valor"]) if not _registro_base.empty else None
 
 with st.expander("✍️ Definir valor inicial fixo", expanded=base_manual is None):
-    st.caption(f"Este valor ficará vinculado a **{cartao_proj} · {HOJE.strftime('%m/%Y')}**.")
+    st.caption(f"Este valor ficará vinculado a **{cartao_proj} · {ref_label}**.")
     novo_base = st.number_input(
         "Valor inicial da fatura (R$):", min_value=0.0,
         value=base_manual, step=None, placeholder="0,00", format="%.2f",
-        key=f"base_fatura_{cartao_proj}_{HOJE.year}_{HOJE.month}",
+        key=f"base_fatura_{cartao_proj}_{ano_fatura}_{mes_fatura}",
     )
     if st.button("💾 Salvar valor inicial", type="primary", use_container_width=True,
-                 key=f"salvar_base_{cartao_proj}_{HOJE.year}_{HOJE.month}"):
+                 key=f"salvar_base_{cartao_proj}_{ano_fatura}_{mes_fatura}"):
         if novo_base is None:
             mensagem_erro("Informe o valor inicial da fatura.")
         else:
             df_bases = df_bases[~_mask_base].copy() if len(_mask_base) else df_bases.copy()
             nova_base = pd.DataFrame([{
-                "id": gerar_id(), "ano": HOJE.year, "mes": HOJE.month,
+                "id": gerar_id(), "ano": ano_fatura, "mes": mes_fatura,
                 "cartao": cartao_proj, "valor": round(float(novo_base), 2), "criado_em": agora(),
             }])
             ok_base = salvar_parquet("faturas_base", pd.concat([df_bases, nova_base], ignore_index=True))
             if ok_base:
                 invalidar_cache("faturas_base")
-                mensagem_sucesso(f"Valor inicial de {formatar_moeda(novo_base)} salvo para {HOJE.strftime('%m/%Y')}.")
+                mensagem_sucesso(f"Valor inicial de {formatar_moeda(novo_base)} salvo para {ref_label}.")
                 st.rerun()
             else:
                 mensagem_erro("Não foi possível salvar o valor inicial.")
@@ -164,15 +217,15 @@ base_parcelada = base_manual if base_manual is not None else proj["total"]
 if not df_d.empty:
     _fon = df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str)
     _dt = pd.to_datetime(df_d.get("data"), errors="coerce")
-    _mes = (_dt.dt.month == HOJE.month) & (_dt.dt.year == HOJE.year)
+    _no_ciclo = (_dt.dt.date >= inicio_ciclo) & (_dt.dt.date <= fim_ciclo)
     _credito_cartao = mascara_credito_cartao(df_d, cartao_proj)
-    sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito_cartao & _mes].copy()
+    sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito_cartao & _no_ciclo].copy()
 else:
     sem_credito = pd.DataFrame()
 
 if not sem_credito.empty:
-    sem_credito["_semana_mes"] = semana_do_mes(sem_credito["data"])
-    por_semana = sem_credito.groupby("_semana_mes")["valor"].sum().to_dict()
+    sem_credito["_semana_ciclo"] = semana_no_ciclo_fatura(sem_credito["data"], ano_fatura, mes_fatura, 4)
+    por_semana = sem_credito.groupby("_semana_ciclo")["valor"].sum().to_dict()
 else:
     por_semana = {}
 
@@ -191,10 +244,14 @@ if cartao_proj == "C6 BRU" and not sem_credito.empty:
 
 acumulado = base_parcelada
 linhas_proj = []
-for n_sem in range(1, 6):
+_n_semanas_ciclo = ((fim_ciclo - inicio_ciclo).days // 7) + 1
+for n_sem in range(1, _n_semanas_ciclo + 1):
     valor_sem = float(por_semana.get(n_sem, 0))
     acumulado += valor_sem
-    linhas_proj.append({"Semana": f"Semana {n_sem}", "Novos gastos": valor_sem, "Fatura acumulada": acumulado})
+    ini_sem_fat = inicio_ciclo + timedelta(days=(n_sem - 1) * 7)
+    fim_sem_fat = min(ini_sem_fat + timedelta(days=6), fim_ciclo)
+    linhas_proj.append({"Semana": f"Semana {n_sem} · {ini_sem_fat.strftime('%d/%m')}–{fim_sem_fat.strftime('%d/%m')}",
+                        "Novos gastos": valor_sem, "Fatura acumulada": acumulado})
 st.dataframe(
     pd.DataFrame(linhas_proj), hide_index=True, use_container_width=True,
     column_config={
@@ -335,3 +392,39 @@ else:
                    f'<div class="track"><div class="fill" style="width:{val/maxv*100:.0f}%;'
                    f'background:linear-gradient(90deg,#FF5C7A,#FF8AA0)"></div></div></div>')
     st.markdown(f'<div class="cat">{linhas}</div>', unsafe_allow_html=True)
+
+# ── Histórico completo organizado por semana ─────────────────
+st.divider()
+st.markdown('<div class="p-title"><span class="tbar"></span> Histórico de semanas</div>',
+            unsafe_allow_html=True)
+st.caption("Todos os gastos semanais, agrupados automaticamente pela data do lançamento.")
+if df_d.empty:
+    st.caption("Ainda não há lançamentos semanais.")
+else:
+    _hist = df_d[df_d.get("fonte", pd.Series("", index=df_d.index)).astype(str) == FONTE_SEMANAL].copy()
+    _hist["_dt_hist"] = pd.to_datetime(_hist.get("data"), errors="coerce")
+    _hist = _hist[_hist["_dt_hist"].notna()].copy()
+    _hist["_inicio_semana"] = _hist["_dt_hist"].apply(inicio_semana)
+    for _ini in sorted(_hist["_inicio_semana"].unique(), reverse=True):
+        _fim = _ini + timedelta(days=6)
+        _hs = _hist[_hist["_inicio_semana"] == _ini].sort_values("_dt_hist")
+        _chave = _ini.isoformat()
+        _lim_exc = pd.to_numeric(
+            df_limites.loc[df_limites.get("chave", pd.Series(dtype=str)).astype(str) == _chave, "valor"],
+            errors="coerce",
+        )
+        _lim_h = float(_lim_exc.iloc[-1]) if not _lim_exc.empty else limite_padrao
+        _tot_h = float(_hs["valor"].sum())
+        _tag_lim = f" · limite {formatar_moeda(_lim_h)}" if _lim_h > 0 else ""
+        with st.expander(
+            f"{_ini.strftime('%d/%m/%Y')}–{_fim.strftime('%d/%m/%Y')} · "
+            f"{formatar_moeda(_tot_h)} · {len(_hs)} lançamento(s){_tag_lim}",
+            expanded=(_ini == SEG),
+        ):
+            _view = _hs[["data", "descricao", "categoria", "forma_pagamento", "banco", "valor"]].copy()
+            _view["data"] = _hs["_dt_hist"].dt.strftime("%d/%m/%Y")
+            _view.columns = ["Data", "Descrição", "Categoria", "Forma", "Cartão", "Valor"]
+            st.dataframe(
+                _view, hide_index=True, use_container_width=True,
+                column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")},
+            )

@@ -3,11 +3,15 @@
 #  Rode com:  pip install pytest  &&  pytest
 # ============================================================
 import re
+from datetime import date
 import pandas as pd
 import pytest
 
 import utils
-from fatura_projection import parse_parcela, projetar_parcelas, semana_do_mes, mascara_credito_cartao
+from fatura_projection import (
+    parse_parcela, projetar_parcelas, semana_do_mes, mascara_credito_cartao,
+    inicio_semana, competencia_fatura, intervalo_fatura, semana_no_ciclo_fatura,
+)
 
 
 # ── Datas: a área que mais deu bug (mês trocado) ────────────
@@ -124,3 +128,12 @@ def test_credito_legado_sem_cartao_so_entra_no_c6_bru():
     ])
     assert mascara_credito_cartao(df, "C6 BRU").tolist() == [True, False, False]
     assert mascara_credito_cartao(df, "C6 PRI").tolist() == [False, True, False]
+
+
+def test_semana_calendario_e_ciclo_fatura_dia_4():
+    assert inicio_semana("2026-09-06").isoformat() == "2026-08-31"
+    assert competencia_fatura("2026-09-04", 4) == (2026, 9)
+    assert competencia_fatura("2026-09-05", 4) == (2026, 10)
+    assert intervalo_fatura(2026, 10, 4) == (date(2026, 9, 5), date(2026, 10, 4))
+    semanas = semana_no_ciclo_fatura(pd.Series(["2026-09-05", "2026-09-11", "2026-09-12", "2026-10-04"]), 2026, 10, 4)
+    assert semanas.tolist() == [1, 1, 2, 5]

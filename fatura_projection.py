@@ -2,6 +2,7 @@
 
 import re
 import pandas as pd
+from datetime import date, timedelta
 
 
 def parse_parcela(valor):
@@ -78,6 +79,36 @@ def semana_do_mes(datas):
     """Semana 1= dias 1-7, Semana 2=8-14, ... Semana 5=29-fim."""
     dt = pd.to_datetime(datas, errors="coerce")
     return ((dt.dt.day - 1) // 7 + 1).astype("Int64")
+
+
+def inicio_semana(valor):
+    d = pd.Timestamp(valor).date()
+    return d - timedelta(days=d.weekday())
+
+
+def competencia_fatura(valor, dia_fechamento=4):
+    """Retorna (ano, mes) da fatura: compras apos o fechamento vao ao mes seguinte."""
+    d = pd.Timestamp(valor).date()
+    if d.day <= dia_fechamento:
+        return d.year, d.month
+    prox = pd.Timestamp(d) + pd.offsets.MonthBegin(1)
+    return int(prox.year), int(prox.month)
+
+
+def intervalo_fatura(ano, mes, dia_fechamento=4):
+    fim = date(int(ano), int(mes), dia_fechamento)
+    mes_anterior = pd.Timestamp(year=int(ano), month=int(mes), day=1) - pd.DateOffset(months=1)
+    inicio = date(int(mes_anterior.year), int(mes_anterior.month), dia_fechamento + 1)
+    return inicio, fim
+
+
+def semana_no_ciclo_fatura(datas, ano, mes, dia_fechamento=4):
+    """Numera blocos de 7 dias dentro do ciclo, começando no dia 5."""
+    inicio, fim = intervalo_fatura(ano, mes, dia_fechamento)
+    dt = pd.to_datetime(datas, errors="coerce")
+    dias = (dt - pd.Timestamp(inicio)).dt.days
+    semanas = (dias // 7 + 1).astype("Int64")
+    return semanas.where((dt.dt.date >= inicio) & (dt.dt.date <= fim))
 
 
 def mascara_credito_cartao(df, cartao, cartao_legado="C6 BRU"):

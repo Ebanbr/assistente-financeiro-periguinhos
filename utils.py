@@ -342,6 +342,7 @@ def _resolve_tabela(arquivo) -> str:
     if "mapeamentos"     in s: return "mapeamentos"
     if "metas"           in s: return "metas"
     if "faturas_base"    in s: return "faturas_base"
+    if "limites_semanais" in s: return "limites_semanais"
     if "bancos"           in s: return "bancos"
     if "formas_pagamento" in s: return "formas_pagamento"
     if "log_atividades"   in s: return "log_atividades"

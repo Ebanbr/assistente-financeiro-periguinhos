@@ -156,9 +156,31 @@ for _col in ["ano", "mes", "valor"]:
     if _col in df_bases.columns:
         df_bases[_col] = pd.to_numeric(df_bases[_col], errors="coerce")
 
-ano_atual_fat, mes_atual_fat = competencia_fatura(HOJE, 4)
+df_fechamentos = ler_csv("fechamentos_fatura")
+if df_fechamentos.empty:
+    df_fechamentos = pd.DataFrame(columns=["id", "ano", "mes", "cartao", "dia", "criado_em"])
+for _col in ["ano", "mes", "dia"]:
+    if _col in df_fechamentos.columns:
+        df_fechamentos[_col] = pd.to_numeric(df_fechamentos[_col], errors="coerce")
+
+col_card, col_ref = st.columns([2, 1])
+with col_card:
+    cartao_proj = st.selectbox("Cartão:", ["C6 BRU", "C6 PRI", "Nubank"], key="cartao_projecao")
+
+def _dia_fechamento(cartao, ano, mes):
+    if df_fechamentos.empty:
+        return 4
+    mask = (
+        df_fechamentos["ano"].eq(int(ano)) & df_fechamentos["mes"].eq(int(mes))
+        & df_fechamentos["cartao"].astype(str).str.strip().str.casefold().eq(str(cartao).casefold())
+    )
+    encontrados = df_fechamentos[mask]
+    return int(encontrados.iloc[-1]["dia"]) if not encontrados.empty else 4
+
+dia_mes_atual = _dia_fechamento(cartao_proj, HOJE.year, HOJE.month)
+ano_atual_fat, mes_atual_fat = competencia_fatura(HOJE, dia_mes_atual)
 _ref_atual = pd.Timestamp(year=ano_atual_fat, month=mes_atual_fat, day=1)
-_refs = {_ref_atual + pd.DateOffset(months=n) for n in (-1, 0, 1)}
+_refs = {_ref_atual + pd.DateOffset(months=n) for n in range(-1, 13)}
 if not df_bases.empty:
     for _, _rb in df_bases.dropna(subset=["ano", "mes"]).iterrows():
         _refs.add(pd.Timestamp(year=int(_rb["ano"]), month=int(_rb["mes"]), day=1))
@@ -166,16 +188,40 @@ _refs = sorted(_refs)
 _labels_ref = [r.strftime("%m/%Y") for r in _refs]
 _default_ref = _labels_ref.index(_ref_atual.strftime("%m/%Y"))
 
-col_card, col_ref = st.columns([2, 1])
-with col_card:
-    cartao_proj = st.selectbox("Cartão:", ["C6 BRU", "C6 PRI", "Nubank"], key="cartao_projecao")
 with col_ref:
     ref_label = st.selectbox("Fatura de referência:", _labels_ref, index=_default_ref,
                              help="C6 fecha dia 4: compras do dia 5 em diante entram na fatura seguinte.")
 ref_ts = _refs[_labels_ref.index(ref_label)]
 ano_fatura, mes_fatura = int(ref_ts.year), int(ref_ts.month)
-inicio_ciclo, fim_ciclo = intervalo_fatura(ano_fatura, mes_fatura, 4)
+dia_fechamento = _dia_fechamento(cartao_proj, ano_fatura, mes_fatura)
+_ref_anterior = ref_ts - pd.DateOffset(months=1)
+dia_fechamento_anterior = _dia_fechamento(cartao_proj, int(_ref_anterior.year), int(_ref_anterior.month))
+inicio_ciclo, fim_ciclo = intervalo_fatura(
+    ano_fatura, mes_fatura, dia_fechamento, dia_fechamento_anterior,
+)
 st.caption(f"Ciclo considerado: **{inicio_ciclo.strftime('%d/%m/%Y')} a {fim_ciclo.strftime('%d/%m/%Y')}**")
+
+with st.expander("🗓️ Informar fechamento real desta fatura"):
+    novo_fechamento = st.number_input(
+        f"Dia em que a fatura {ref_label} realmente fechou:", min_value=1, max_value=28,
+        value=dia_fechamento, step=1, key=f"fechamento_{cartao_proj}_{ano_fatura}_{mes_fatura}",
+        help="Use o dia efetivo mostrado pelo banco. O padrão continua sendo dia 4.",
+    )
+    if st.button("💾 Salvar fechamento desta fatura", use_container_width=True,
+                 key=f"salvar_fechamento_{cartao_proj}_{ano_fatura}_{mes_fatura}"):
+        _mask_fech = (
+            df_fechamentos["ano"].eq(ano_fatura) & df_fechamentos["mes"].eq(mes_fatura)
+            & df_fechamentos["cartao"].astype(str).str.strip().str.casefold().eq(cartao_proj.casefold())
+        ) if not df_fechamentos.empty else pd.Series(dtype=bool)
+        _base_fech = df_fechamentos[~_mask_fech].copy() if len(_mask_fech) else df_fechamentos.copy()
+        _novo_fech = pd.DataFrame([{
+            "id": gerar_id(), "ano": ano_fatura, "mes": mes_fatura, "cartao": cartao_proj,
+            "dia": int(novo_fechamento), "criado_em": agora(),
+        }])
+        if salvar_parquet("fechamentos_fatura", pd.concat([_base_fech, _novo_fech], ignore_index=True)):
+            invalidar_cache("fechamentos_fatura")
+            mensagem_sucesso(f"Fechamento de {ref_label} definido no dia {int(novo_fechamento)}.")
+            st.rerun()
 
 proj = projetar_parcelas(df_d, ano_fatura, mes_fatura, cartao_proj)
 
@@ -226,7 +272,9 @@ else:
     sem_credito = pd.DataFrame()
 
 if not sem_credito.empty:
-    sem_credito["_semana_ciclo"] = semana_no_ciclo_fatura(sem_credito["data"], ano_fatura, mes_fatura, 4)
+    sem_credito["_semana_ciclo"] = semana_no_ciclo_fatura(
+        sem_credito["data"], ano_fatura, mes_fatura, dia_fechamento, dia_fechamento_anterior,
+    )
     por_semana = sem_credito.groupby("_semana_ciclo")["valor"].sum().to_dict()
 else:
     por_semana = {}
@@ -278,6 +326,42 @@ with st.expander("🔎 Ver parcelas que formam o valor inicial"):
         _pi.columns = ["Descrição", "Valor", "Parcela atual", "Total de parcelas"]
         st.dataframe(_pi, hide_index=True, use_container_width=True,
                      column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")})
+
+st.markdown("#### 📅 Parcelas comprometidas nos próximos meses")
+_linhas_futuras, _detalhes_futuros = [], []
+for _n_mes in range(1, 13):
+    _ref_fut = ref_ts + pd.DateOffset(months=_n_mes)
+    _af, _mf = int(_ref_fut.year), int(_ref_fut.month)
+    _proj_fut = projetar_parcelas(df_d, _af, _mf, cartao_proj)
+    _mask_bf = (
+        df_bases["ano"].eq(_af) & df_bases["mes"].eq(_mf)
+        & df_bases["cartao"].astype(str).str.strip().str.casefold().eq(cartao_proj.casefold())
+    ) if not df_bases.empty else pd.Series(dtype=bool)
+    _bf = df_bases[_mask_bf] if len(_mask_bf) else pd.DataFrame()
+    _fixo_fut = float(_bf.iloc[-1]["valor"]) if not _bf.empty else None
+    _valor_fut = _fixo_fut if _fixo_fut is not None else float(_proj_fut["total"])
+    _linhas_futuras.append({
+        "Fatura": _ref_fut.strftime("%m/%Y"), "Parcelas identificadas": len(_proj_fut["itens"]),
+        "Comprometido": _valor_fut, "Origem": "Valor fixado" if _fixo_fut is not None else "Parcelas importadas",
+    })
+    if not _proj_fut["itens"].empty:
+        for _, _pf in _proj_fut["itens"].iterrows():
+            _detalhes_futuros.append({
+                "Fatura": _ref_fut.strftime("%m/%Y"), "Descrição": _pf.get("descricao", ""),
+                "Parcela": f"{int(_pf['parcela_projetada'])}/{int(_pf['_pt'])}", "Valor": float(_pf["_valor"]),
+            })
+st.dataframe(
+    pd.DataFrame(_linhas_futuras), hide_index=True, use_container_width=True,
+    column_config={"Comprometido": st.column_config.NumberColumn(format="R$ %.2f")},
+)
+with st.expander("🔎 Ver detalhamento das parcelas futuras"):
+    if _detalhes_futuros:
+        st.dataframe(
+            pd.DataFrame(_detalhes_futuros), hide_index=True, use_container_width=True,
+            column_config={"Valor": st.column_config.NumberColumn(format="R$ %.2f")},
+        )
+    else:
+        st.caption("Nenhuma parcela futura comprovada nos dados importados.")
 
 st.divider()
 

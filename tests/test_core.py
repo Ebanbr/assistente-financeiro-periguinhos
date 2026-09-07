@@ -138,6 +138,7 @@ def test_semana_calendario_e_ciclo_fatura_dia_4():
     assert intervalo_fatura(2026, 10, 4) == (date(2026, 9, 5), date(2026, 10, 4))
     semanas = semana_no_ciclo_fatura(pd.Series(["2026-09-05", "2026-09-11", "2026-09-12", "2026-10-04"]), 2026, 10, 4)
     assert semanas.tolist() == [1, 1, 2, 5]
+    assert intervalo_fatura(2026, 10, 4, 3) == (date(2026, 9, 4), date(2026, 10, 4))
 
 
 def test_editar_e_excluir_diretamente_no_historico_semanal():

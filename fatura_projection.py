@@ -95,16 +95,17 @@ def competencia_fatura(valor, dia_fechamento=4):
     return int(prox.year), int(prox.month)
 
 
-def intervalo_fatura(ano, mes, dia_fechamento=4):
+def intervalo_fatura(ano, mes, dia_fechamento=4, dia_fechamento_anterior=None):
     fim = date(int(ano), int(mes), dia_fechamento)
     mes_anterior = pd.Timestamp(year=int(ano), month=int(mes), day=1) - pd.DateOffset(months=1)
-    inicio = date(int(mes_anterior.year), int(mes_anterior.month), dia_fechamento + 1)
+    fechamento_anterior = dia_fechamento if dia_fechamento_anterior is None else int(dia_fechamento_anterior)
+    inicio = date(int(mes_anterior.year), int(mes_anterior.month), fechamento_anterior + 1)
     return inicio, fim
 
 
-def semana_no_ciclo_fatura(datas, ano, mes, dia_fechamento=4):
+def semana_no_ciclo_fatura(datas, ano, mes, dia_fechamento=4, dia_fechamento_anterior=None):
     """Numera blocos de 7 dias dentro do ciclo, começando no dia 5."""
-    inicio, fim = intervalo_fatura(ano, mes, dia_fechamento)
+    inicio, fim = intervalo_fatura(ano, mes, dia_fechamento, dia_fechamento_anterior)
     dt = pd.to_datetime(datas, errors="coerce")
     dias = (dt - pd.Timestamp(inicio)).dt.days
     semanas = (dias // 7 + 1).astype("Int64")

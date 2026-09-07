@@ -110,6 +110,26 @@ def _normalizar_coluna_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _normalizar_schema_tabela(df: pd.DataFrame, tabela: str) -> pd.DataFrame:
+    """Aplica migrações apenas nas tabelas às quais pertencem.
+
+    `cartao -> banco` é legado exclusivo de despesas/receitas. As tabelas de
+    configuração de fatura usam `cartao` de propósito.
+    """
+    df = df.copy()
+    if tabela in ("despesas", "receitas"):
+        if "cartao" in df.columns and "banco" not in df.columns:
+            df = df.rename(columns={"cartao": "banco"})
+    elif tabela in ("faturas_base", "fechamentos_fatura") and "banco" in df.columns:
+        if "cartao" not in df.columns:
+            df = df.rename(columns={"banco": "cartao"})
+        else:
+            vazio = df["cartao"].astype(str).str.strip().isin(["", "nan", "None"])
+            df.loc[vazio, "cartao"] = df.loc[vazio, "banco"]
+            df = df.drop(columns=["banco"])
+    return df
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
     try:
@@ -134,9 +154,7 @@ def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
         df = df[df.apply(lambda r: any(str(v).strip() for v in r), axis=1)].reset_index(drop=True)
         if df.empty:
             return pd.DataFrame()
-        # Migração: renomeia coluna legada 'cartao' → 'banco'
-        if "cartao" in df.columns and "banco" not in df.columns:
-            df = df.rename(columns={"cartao": "banco"})
+        df = _normalizar_schema_tabela(df, tabela)
 
         # Migração: popula 'banco' a partir da descrição para registros Notion
         if "banco" in df.columns and "descricao" in df.columns:
@@ -230,9 +248,7 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
             return
 
         df_export = df.copy()
-        # Migração: garante que coluna legada 'cartao' sai como 'banco' ao salvar
-        if "cartao" in df_export.columns and "banco" not in df_export.columns:
-            df_export = df_export.rename(columns={"cartao": "banco"})
+        df_export = _normalizar_schema_tabela(df_export, tabela)
         if "data_dt" in df_export.columns:
             df_export = df_export.drop(columns=["data_dt"])
 
@@ -446,9 +462,7 @@ def ler_csv(arquivo) -> pd.DataFrame:
         return pd.DataFrame()
     try:
         df = pd.read_parquet(arquivo_parquet)
-        # Migração: renomeia coluna legada 'cartao' → 'banco'
-        if "cartao" in df.columns and "banco" not in df.columns:
-            df = df.rename(columns={"cartao": "banco"})
+        df = _normalizar_schema_tabela(df, tabela)
         # Migração: popula 'banco' a partir da descrição para registros Notion
         if "banco" in df.columns and "descricao" in df.columns:
             _BANCO_DE_DESC = {

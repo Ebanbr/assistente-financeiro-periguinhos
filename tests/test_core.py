@@ -157,3 +157,15 @@ def test_editar_e_excluir_diretamente_no_historico_semanal():
     assert out.iloc[0]["descricao"] == "Corrigido"
     assert out.iloc[0]["valor"] == 15.5
     assert out.iloc[0]["banco"] == ""
+
+
+def test_migracao_cartao_banco_respeita_tipo_da_tabela():
+    desp = utils._normalizar_schema_tabela(pd.DataFrame({"cartao": ["C6 BRU"]}), "despesas")
+    assert list(desp.columns) == ["banco"]
+    fech = utils._normalizar_schema_tabela(pd.DataFrame({"banco": ["C6 BRU"]}), "fechamentos_fatura")
+    assert list(fech.columns) == ["cartao"]
+    base = utils._normalizar_schema_tabela(
+        pd.DataFrame({"banco": ["C6 BRU", ""], "cartao": ["", "C6 PRI"]}), "faturas_base"
+    )
+    assert list(base.columns) == ["cartao"]
+    assert base["cartao"].tolist() == ["C6 BRU", "C6 PRI"]

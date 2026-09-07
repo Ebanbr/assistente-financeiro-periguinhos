@@ -159,6 +159,10 @@ for _col in ["ano", "mes", "valor"]:
 df_fechamentos = ler_csv("fechamentos_fatura")
 if df_fechamentos.empty:
     df_fechamentos = pd.DataFrame(columns=["id", "ano", "mes", "cartao", "dia", "criado_em"])
+else:
+    for _col in ["id", "ano", "mes", "cartao", "dia", "criado_em"]:
+        if _col not in df_fechamentos.columns:
+            df_fechamentos[_col] = ""
 for _col in ["ano", "mes", "dia"]:
     if _col in df_fechamentos.columns:
         df_fechamentos[_col] = pd.to_numeric(df_fechamentos[_col], errors="coerce")

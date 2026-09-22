@@ -21,7 +21,7 @@ from utils import (esc,
 )
 from fatura_projection import (
     projetar_parcelas, mascara_credito_cartao, inicio_semana,
-    competencia_fatura, intervalo_fatura, semana_no_ciclo_fatura,
+    competencia_fatura, intervalo_fatura,
     aplicar_edicoes_semanais,
 )
 
@@ -284,19 +284,13 @@ if not df_d.empty:
     _dt = pd.to_datetime(df_d.get("data"), errors="coerce")
     _no_ciclo = (_dt.dt.date >= inicio_ciclo) & (_dt.dt.date <= fim_ciclo)
     _credito_cartao = mascara_credito_cartao(df_d, cartao_proj)
+    _gastos_ciclo = df_d[(_fon == FONTE_SEMANAL) & _no_ciclo].copy()
     sem_credito = df_d[(_fon == FONTE_SEMANAL) & _credito_cartao & _no_ciclo].copy()
 else:
+    _gastos_ciclo = pd.DataFrame()
     sem_credito = pd.DataFrame()
 
-if not sem_credito.empty:
-    sem_credito["_semana_ciclo"] = semana_no_ciclo_fatura(
-        sem_credito["data"], ano_fatura, mes_fatura, dia_fechamento, dia_fechamento_anterior,
-    )
-    por_semana = sem_credito.groupby("_semana_ciclo")["valor"].sum().to_dict()
-else:
-    por_semana = {}
-
-gastos_credito = float(sum(por_semana.values()))
+gastos_credito = float(sem_credito["valor"].sum()) if not sem_credito.empty else 0.0
 estimada = base_parcelada + gastos_credito
 f1, f2, f3, f4 = st.columns(4)
 _origem_base = "valor fixado por você" if base_manual is not None else "parcelas identificadas"
@@ -304,6 +298,16 @@ f1.metric("Fatura começa em", formatar_moeda(base_parcelada), help=_origem_base
 f2.metric("Novos gastos no crédito", formatar_moeda(gastos_credito))
 f3.metric("Fatura estimada", formatar_moeda(estimada))
 f4.metric("Valor no banco", formatar_moeda(valor_atual_banco) if valor_atual_banco is not None else "não informado")
+
+_total_ciclo = float(_gastos_ciclo["valor"].sum()) if not _gastos_ciclo.empty else 0.0
+_fora_cartao = round(_total_ciclo - gastos_credito, 2)
+st.caption(
+    f"Conciliação de {inicio_ciclo:%d/%m/%Y} a {fim_ciclo:%d/%m/%Y}: "
+    f"gastos semanais lançados {formatar_moeda(_total_ciclo)} "
+    f"− outras formas/cartões {formatar_moeda(_fora_cartao)} "
+    f"= crédito no {cartao_proj} {formatar_moeda(gastos_credito)}. "
+    f"Base {formatar_moeda(base_parcelada)} + crédito = {formatar_moeda(estimada)}."
+)
 
 if valor_atual_banco is not None:
     _diferenca_banco = round(estimada - valor_atual_banco, 2)
@@ -317,24 +321,6 @@ if cartao_proj == "C6 BRU" and not sem_credito.empty:
     _sem_banco = sem_credito.get("banco", pd.Series("", index=sem_credito.index)).astype(str).str.strip().eq("").sum()
     if _sem_banco:
         st.caption(f"ℹ️ {_sem_banco} compra(s) antiga(s) no crédito sem cartão informado foram consideradas como C6 BRU.")
-
-acumulado = base_parcelada
-linhas_proj = []
-_n_semanas_ciclo = ((fim_ciclo - inicio_ciclo).days // 7) + 1
-for n_sem in range(1, _n_semanas_ciclo + 1):
-    valor_sem = float(por_semana.get(n_sem, 0))
-    acumulado += valor_sem
-    ini_sem_fat = inicio_ciclo + timedelta(days=(n_sem - 1) * 7)
-    fim_sem_fat = min(ini_sem_fat + timedelta(days=6), fim_ciclo)
-    linhas_proj.append({"Semana": f"Semana {n_sem} · {ini_sem_fat.strftime('%d/%m')}–{fim_sem_fat.strftime('%d/%m')}",
-                        "Novos gastos": valor_sem, "Fatura acumulada": acumulado})
-st.dataframe(
-    pd.DataFrame(linhas_proj), hide_index=True, use_container_width=True,
-    column_config={
-        "Novos gastos": st.column_config.NumberColumn(format="R$ %.2f"),
-        "Fatura acumulada": st.column_config.NumberColumn(format="R$ %.2f"),
-    },
-)
 
 if base_manual is not None:
     st.caption(f"🔒 Base mensal fixada manualmente: **{formatar_moeda(base_manual)}**. A projeção por parcelas não altera este valor.")
@@ -512,7 +498,7 @@ else:
 st.divider()
 st.markdown('<div class="p-title"><span class="tbar"></span> Histórico de semanas</div>',
             unsafe_allow_html=True)
-st.caption("Todos os gastos semanais, agrupados automaticamente pela data do lançamento.")
+st.caption("Semanas de segunda a domingo, com todos os meios de pagamento e cartões. A fatura estimada considera apenas o crédito do cartão selecionado no ciclo informado acima.")
 if df_d.empty:
     st.caption("Ainda não há lançamentos semanais.")
 else:

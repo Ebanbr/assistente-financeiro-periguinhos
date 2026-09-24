@@ -175,7 +175,7 @@ def render_pessoa(prefixo, nome, emoji, cor_primaria, cor_secundaria):
     DARK_APOS = {**DARK, "xaxis": dict(title="Idade (anos)", gridcolor="#21262D", linecolor="#30363D")}
     fig.update_layout(height=350, **DARK_APOS)
     estilizar_figura(fig)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
 
     # Simulador
     st.markdown("#### 🔬 Simulador de Aportes")
@@ -269,7 +269,7 @@ with aba_casal:
     DARK_CASAL = {**DARK, "xaxis": dict(title="Idade (anos)", gridcolor="#21262D", linecolor="#30363D")}
     fig2.update_layout(height=380, **DARK_CASAL)
     estilizar_figura(fig2)
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True, theme=None)
 
     # Resumo lado a lado
     st.markdown("#### 📋 Resumo Comparativo")

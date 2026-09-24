@@ -520,10 +520,12 @@ else:
             paper_bgcolor=_pal["fundo"], plot_bgcolor=_pal["fundo"],
             font=dict(color=_pal["texto"]), margin=dict(l=4, r=4, t=8, b=6),
             height=220, showlegend=False,
-            xaxis=dict(showgrid=False), yaxis=dict(gridcolor=_pal["grade"], tickprefix="R$ "),
+            xaxis=dict(showgrid=False, tickfont=dict(color=_pal["texto"])),
+            yaxis=dict(gridcolor=_pal["grade"], tickprefix="R$ ",
+                       tickfont=dict(color=_pal["texto"])),
         )
         _sel_sem = st.plotly_chart(
-            _fig_sem, use_container_width=True, key="historico_semanal_grafico",
+            _fig_sem, use_container_width=True, key="historico_semanal_grafico", theme=None,
             on_select="rerun", selection_mode="points",
         )
         _pontos_sem = _sel_sem.selection.points if _sel_sem else []

@@ -235,7 +235,7 @@ if meta_valor > 0:
                         font=dict(color="#E6EDF3", size=11), x=1.02, y=0.5),
         )
         estilizar_figura(fig_pizza)
-        st.plotly_chart(fig_pizza, use_container_width=True)
+        st.plotly_chart(fig_pizza, use_container_width=True, theme=None)
 
 # ── Projeção de crescimento ───────────────────────────────────
 st.divider()
@@ -271,7 +271,7 @@ fig_proj.update_layout(
     xaxis=dict(gridcolor="#21262D", tickangle=-45),
 )
 estilizar_figura(fig_proj)
-st.plotly_chart(fig_proj, use_container_width=True)
+st.plotly_chart(fig_proj, use_container_width=True, theme=None)
 
 # ── Simulador ─────────────────────────────────────────────────
 st.divider()

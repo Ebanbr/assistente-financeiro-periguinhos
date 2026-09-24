@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
@@ -15,6 +16,15 @@ def test_paletas_separam_receita_e_despesa():
         cores = ui_theme.paleta_graficos(nome)
         assert cores["receita"] != cores["despesa"]
         assert cores["texto"] != cores["fundo"]
+
+
+def test_rotulos_plotly_usam_contraste_do_tema_claro(monkeypatch):
+    monkeypatch.setattr(ui_theme, "tema_atual", lambda: "Claro")
+    fig = go.Figure(go.Bar(x=["Mês"], y=[10]))
+    ui_theme.estilizar_figura(fig)
+    cor = ui_theme.paleta_graficos("Claro")["texto"]
+    assert fig.layout.xaxis.tickfont.color == cor
+    assert fig.layout.yaxis.tickfont.color == cor
 
 
 def test_dashboard_renderiza_nos_dois_temas_sem_dados_reais(monkeypatch):

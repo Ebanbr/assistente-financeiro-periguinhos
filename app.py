@@ -33,8 +33,10 @@ ICE, AURORA, RECEITA, DESPESA, WARN = (
 ARCTIC = dict(
     paper_bgcolor=_cores["fundo"], plot_bgcolor=_cores["fundo"],
     font=dict(color=_cores["texto"], family="Inter", size=12),
-    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
-    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
+    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
+               tickfont=dict(color=_cores["texto"])),
+    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
+               tickfont=dict(color=_cores["texto"])),
     margin=dict(l=6, r=6, t=10, b=6),
 )
 
@@ -181,7 +183,7 @@ with col_a:
                           legend=dict(orientation="h", x=0, y=1.14, bgcolor="rgba(0,0,0,0)",
                                       font=dict(color=_cores["texto"], size=12)))
         escolha_fluxo = st.plotly_chart(
-            fig, use_container_width=True, key="fluxo_mensal_interativo",
+            fig, use_container_width=True, key="fluxo_mensal_interativo", theme=None,
             on_select="rerun", selection_mode="points",
         )
         pontos_fluxo = escolha_fluxo.selection.points if escolha_fluxo else []
@@ -213,7 +215,7 @@ with col_b:
         graf_cat.update_xaxes(visible=False)
         graf_cat.update_yaxes(showgrid=False)
         escolha_cat = st.plotly_chart(
-            graf_cat, use_container_width=True, key="categorias_interativas",
+            graf_cat, use_container_width=True, key="categorias_interativas", theme=None,
             on_select="rerun", selection_mode="points",
         )
         pontos_cat = escolha_cat.selection.points if escolha_cat else []

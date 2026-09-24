@@ -69,4 +69,5 @@ def estilizar_figura(fig) -> None:
         font_color=cores["texto"], legend_bgcolor=cores["fundo"],
         legend_font_color=cores["texto"],
         xaxis_gridcolor=cores["grade"], yaxis_gridcolor=cores["grade"],
+        xaxis_tickfont_color=cores["texto"], yaxis_tickfont_color=cores["texto"],
     )

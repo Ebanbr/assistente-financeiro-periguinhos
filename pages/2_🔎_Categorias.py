@@ -25,8 +25,10 @@ ICE, AURORA, RECEITA, DESPESA = (_cores["destaque"], _cores["saldo"], _cores["re
 ARCTIC = dict(
     paper_bgcolor=_cores["fundo"], plot_bgcolor=_cores["fundo"],
     font=dict(color=_cores["texto"], family="Inter", size=12),
-    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
-    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
+    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
+               tickfont=dict(color=_cores["texto"])),
+    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
+               tickfont=dict(color=_cores["texto"])),
     margin=dict(l=6, r=6, t=10, b=6),
 )
 
@@ -115,7 +117,7 @@ with col_a:
         fig = go.Figure(go.Bar(x=labels, y=evo.values, marker_color=cor, opacity=0.9,
                                hovertemplate="<b>%{x}</b><br>R$ %{y:,.2f}<extra></extra>"))
         fig.update_layout(**ARCTIC, height=280, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, key="cat_evo")
+        st.plotly_chart(fig, use_container_width=True, key="cat_evo", theme=None)
 
 # Top estabelecimentos (o gasto real)
 with col_b:

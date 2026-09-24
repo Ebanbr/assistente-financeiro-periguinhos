@@ -8,12 +8,12 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import date, timedelta
-from pathlib import Path
 
 from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, CONFIG_FILE, MAPEAMENTOS_FILE
 from utils import (esc, ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
                    listar_categorias, invalidar_cache, mensagem_sucesso, mensagem_erro)
 from auth import login_page, usuario_logado, logout
+from ui_theme import aplicar_tema, paleta_graficos, tema_atual
 
 # ── Login ─────────────────────────────────────────────────────
 if not st.session_state.get("logado"):
@@ -21,29 +21,29 @@ if not st.session_state.get("logado"):
     st.stop()
 
 st.set_page_config(page_title=f"{APP_EMOJI} {APP_NOME}", page_icon=APP_EMOJI,
-                   layout="wide", initial_sidebar_state="expanded")
+                   layout="wide", initial_sidebar_state="collapsed")
 
-css_path = Path(__file__).parent / "style.css"
-if css_path.exists():
-    with open(css_path, encoding="utf-8") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+aplicar_tema()
 
 # Paleta Ártico p/ gráficos
-ICE, AURORA, RECEITA, DESPESA, WARN = "#4FE3FF", "#39E0A6", "#4AA8FF", "#FF5C7A", "#FFC24B"
+_cores = paleta_graficos(tema_atual())
+ICE, AURORA, RECEITA, DESPESA, WARN = (
+    _cores["destaque"], _cores["saldo"], _cores["receita"], _cores["despesa"], "#FFC24B"
+)
 ARCTIC = dict(
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#93A2C4", family="Inter", size=12),
-    xaxis=dict(gridcolor="#16223a", linecolor="#1E2942", zeroline=False),
-    yaxis=dict(gridcolor="#16223a", linecolor="#1E2942", zeroline=False),
+    paper_bgcolor=_cores["fundo"], plot_bgcolor=_cores["fundo"],
+    font=dict(color=_cores["texto"], family="Inter", size=12),
+    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
+    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
     margin=dict(l=6, r=6, t=10, b=6),
 )
 
 # ── Sidebar ──────────────────────────────────────────────────
 st.sidebar.markdown(f"## {APP_EMOJI} {APP_NOME}")
-st.sidebar.markdown("<small style='color:#5B6889'>Painel financeiro da família</small>", unsafe_allow_html=True)
+st.sidebar.markdown("<small style='color:var(--txt-dim)'>Painel financeiro da família</small>", unsafe_allow_html=True)
 _u = usuario_logado()
 _emoji_u = "🧔" if _u == "BOo" else "👩"
-st.sidebar.markdown(f"<small style='color:#4AA8FF'>{_emoji_u} Olá, <b>{_u}</b>!</small>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<small style='color:var(--ice)'>{_emoji_u} Olá, <b>{esc(_u)}</b>!</small>", unsafe_allow_html=True)
 if st.sidebar.button("🚪 Sair", use_container_width=True):
     logout()
 st.sidebar.divider()
@@ -94,7 +94,7 @@ poup = (saldo / total_rec) if total_rec > 0 else 0
 periodo_label = (f"{MESES_PT[mes_sel-1]} {ano_sel}" if mes_sel > 0 and ano_sel != "Todos"
                  else (str(ano_sel) if ano_sel != "Todos" else "todo o período"))
 
-# ── Séries mensais (p/ sparklines e fluxo) ───────────────────
+# ── Séries mensais para o fluxo ───────────────────────────────
 def serie_mensal(df):
     if df.empty or "data_dt" not in df.columns:
         return pd.Series(dtype=float)
@@ -110,48 +110,31 @@ fluxo["despesas"] = sd.reindex(idx).fillna(0) if idx else []
 fluxo["saldo"] = (fluxo["receitas"] - fluxo["despesas"]) if idx else []
 labels_fluxo = [f"{MESES_PT[p.month-1][:3]}/{str(p.year)[2:]}" for p in idx]
 
-def _spark(vals, color):
-    vals = [float(v) for v in vals]
-    if len(vals) < 2:
-        return "<div style='height:30px'></div>"
-    lo, hi = min(vals), max(vals); rng = (hi - lo) or 1; n = len(vals)
-    pts = [f"{i/(n-1)*120:.1f},{30-((v-lo)/rng)*24-3:.1f}" for i, v in enumerate(vals)]
-    lx, ly = pts[-1].split(",")
-    return (f'<svg class="spark" viewBox="0 0 120 30" preserveAspectRatio="none" aria-hidden="true">'
-            f'<polyline points="{" ".join(pts)}" fill="none" stroke="{color}" stroke-width="2" '
-            f'stroke-linecap="round" stroke-linejoin="round"/>'
-            f'<circle cx="{lx}" cy="{ly}" r="2.4" fill="{color}"/></svg>')
-
-spk_r = _spark(fluxo["receitas"].tail(8).tolist(), RECEITA) if idx else "<div style='height:30px'></div>"
-spk_d = _spark(fluxo["despesas"].tail(8).tolist(), DESPESA) if idx else "<div style='height:30px'></div>"
-spk_s = _spark(fluxo["saldo"].tail(8).tolist(), AURORA) if idx else "<div style='height:30px'></div>"
-spk_p = _spark([(fluxo["saldo"].iloc[i]/fluxo["receitas"].iloc[i]) if fluxo["receitas"].iloc[i] > 0 else 0
-                for i in range(len(idx))][-8:], ICE) if idx else "<div style='height:30px'></div>"
-
 # ══════════════════════════════════════════════════════════════
-# HERO / TESE
+# RESUMO — mesma informação, linguagem Pulse/Caderno conforme o tema
 # ══════════════════════════════════════════════════════════════
-if saldo >= 0:
-    verbo, classe, valor_tese = "Sobrou", "pos", saldo
-    pill1 = f'<span class="pill up">▲ {poup*100:.0f}% da renda poupada</span>'
-else:
-    verbo, classe, valor_tese = "Faltaram", "neg", abs(saldo)
-    pill1 = f'<span class="pill down">▼ gastou mais do que ganhou</span>'
-pill2 = f'<span class="pill mut">{len(df_df)} despesas · {len(df_rf)} receitas no período</span>'
-
+_resultado_label = "Disponível após as despesas" if saldo >= 0 else "Déficit no período"
+_resultado_classe = "positivo" if saldo >= 0 else "negativo"
 st.markdown(f"""
-<div class="thesis">
-  <div class="eyebrow">Resultado · {periodo_label}</div>
-  <div class="big num">{verbo} <em class="{classe}">{formatar_moeda(valor_tese)}</em></div>
-  <div class="trow">{pill1}{pill2}</div>
+<div class="dashboard-intro">
+  <div class="dashboard-brand">🐧 PERIGUINHOS <span>· {esc(periodo_label)}</span></div>
+  <h1>O essencial, de primeira.</h1>
+  <p>O mês inteiro à vista. Período e aparência ficam no menu lateral.</p>
 </div>
+<section class="dashboard-summary" aria-label="Resumo financeiro do período">
+  <div class="dashboard-balance {_resultado_classe}">
+    <div class="dashboard-eyebrow">{_resultado_label}</div>
+    <div class="dashboard-big num">{formatar_moeda(abs(saldo))}</div>
+    <div class="dashboard-context">Receitas menos despesas · {poup*100:.1f}% da renda</div>
+  </div>
+  <div class="dashboard-figures">
+    <div><span>Receitas</span><strong class="num receita">{formatar_moeda(total_rec)}</strong></div>
+    <div><span>Despesas</span><strong class="num despesa">{formatar_moeda(total_desp)}</strong></div>
+  </div>
+</section>
 """, unsafe_allow_html=True)
 
-st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════
-# KPIs (clicáveis → detalhe)
-# ══════════════════════════════════════════════════════════════
+# Todos os números acima conservam um caminho para os lançamentos de origem.
 def _tabela_detalhe(df, cols=("data", "descricao", "categoria", "valor")):
     if df.empty:
         st.caption("Sem lançamentos.")
@@ -161,38 +144,17 @@ def _tabela_detalhe(df, cols=("data", "descricao", "categoria", "valor")):
     t["valor"] = t["valor"].apply(formatar_moeda)
     t.columns = ["Data", "Descrição", "Categoria", "Valor"]
     st.dataframe(t, use_container_width=True, hide_index=True, height=300)
+    if len(df) > len(t):
+        st.caption(f"Exibindo {len(t)} dos {len(df)} lançamentos. Use as páginas de detalhamento para consultar todos.")
 
-k1, k2, k3, k4 = st.columns(4)
-kpis = [
-    (k1, "receita", "Receitas", "💰", formatar_moeda(total_rec), f"{len(df_rf)} lançamentos", spk_r, df_rf),
-    (k2, "despesa", "Despesas", "💸", formatar_moeda(total_desp), f"{len(df_df)} lançamentos", spk_d, df_df),
-    (k3, "saldo",   "Saldo",    "💵", ("+" if saldo >= 0 else "") + formatar_moeda(saldo), "receitas − despesas", spk_s, None),
-    (k4, "poup",    "Poupança", "📈", f"{poup*100:.0f}%", "meta ideal: 20%", spk_p, None),
-]
-for col, cls, lab, ico, val, sub, spk, detalhe in kpis:
-    with col:
-        st.markdown(f"""
-        <div class="kpi {cls}">
-          <div class="k-top"><span class="k-lab">{lab}</span><span class="k-ico">{ico}</span></div>
-          <div class="k-val num">{val}</div>
-          <div class="k-sub">{sub}</div>
-          {spk}
-        </div>""", unsafe_allow_html=True)
-        with st.popover("🔎 detalhar", use_container_width=True):
-            if cls == "receita":
-                st.markdown("**Receitas do período**"); _tabela_detalhe(df_rf)
-            elif cls == "despesa":
-                st.markdown("**Despesas do período**"); _tabela_detalhe(df_df)
-            elif cls == "saldo":
-                st.markdown("**Composição do saldo**")
-                st.metric("Receitas", formatar_moeda(total_rec))
-                st.metric("Despesas", formatar_moeda(total_desp))
-                st.metric("Saldo", ("+" if saldo >= 0 else "") + formatar_moeda(saldo))
-            else:
-                st.markdown("**Taxa de poupança**")
-                st.caption("Quanto da sua renda sobrou no período. O ideal é guardar ao menos 20%.")
-                st.progress(min(max(poup, 0), 1.0))
-                st.caption(f"Poupança atual: **{poup*100:.1f}%** — {formatar_moeda(saldo)} de {formatar_moeda(total_rec)}.")
+col_rec, col_desp, col_saldo = st.columns(3)
+with col_rec, st.popover(f"Ver {len(df_rf)} receitas", use_container_width=True):
+    _tabela_detalhe(df_rf)
+with col_desp, st.popover(f"Ver {len(df_df)} despesas", use_container_width=True):
+    _tabela_detalhe(df_df)
+with col_saldo, st.popover("Entender o saldo", use_container_width=True):
+    st.caption(f"{formatar_moeda(total_rec)} em receitas − {formatar_moeda(total_desp)} em despesas = {formatar_moeda(saldo)}.")
+    st.caption("Gastos semanais provisórios não entram neste resultado macro.")
 
 st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
@@ -207,16 +169,33 @@ with col_a:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=labels_fluxo, y=fluxo["receitas"], name="Receitas",
-            line=dict(color=RECEITA, width=2.4), fill="tozeroy", fillcolor="rgba(74,168,255,0.14)",
+            mode="lines+markers", marker=dict(size=8),
+            line=dict(color=RECEITA, width=2.4), fill="tozeroy", fillcolor=_cores["receita_fill"],
             hovertemplate="<b>%{x}</b><br>Receitas: R$ %{y:,.2f}<extra></extra>"))
         fig.add_trace(go.Scatter(
             x=labels_fluxo, y=fluxo["despesas"], name="Despesas",
-            line=dict(color=DESPESA, width=2.4), fill="tozeroy", fillcolor="rgba(255,92,122,0.12)",
+            mode="lines+markers", marker=dict(size=8),
+            line=dict(color=DESPESA, width=2.4), fill="tozeroy", fillcolor=_cores["despesa_fill"],
             hovertemplate="<b>%{x}</b><br>Despesas: R$ %{y:,.2f}<extra></extra>"))
         fig.update_layout(**ARCTIC, height=300, hovermode="x unified",
                           legend=dict(orientation="h", x=0, y=1.14, bgcolor="rgba(0,0,0,0)",
-                                      font=dict(color="#EAF1FF", size=12)))
-        st.plotly_chart(fig, use_container_width=True)
+                                      font=dict(color=_cores["texto"], size=12)))
+        escolha_fluxo = st.plotly_chart(
+            fig, use_container_width=True, key="fluxo_mensal_interativo",
+            on_select="rerun", selection_mode="points",
+        )
+        pontos_fluxo = escolha_fluxo.selection.points if escolha_fluxo else []
+        if pontos_fluxo:
+            ponto = pontos_fluxo[0]
+            pos = ponto.get("point_index", ponto.get("pointNumber", -1))
+            curva = ponto.get("curve_number", ponto.get("curveNumber", 0))
+            if isinstance(pos, int) and 0 <= pos < len(idx):
+                origem = df_r if curva == 0 else df_d
+                detalhe_mes = origem[origem["data_dt"].dt.to_period("M") == idx[pos]]
+                with st.expander(f"Lançamentos de {labels_fluxo[pos]} · {'receitas' if curva == 0 else 'despesas'}", expanded=True):
+                    _tabela_detalhe(detalhe_mes)
+        else:
+            st.caption("Clique em um ponto para abrir os lançamentos daquele mês.")
     else:
         st.info("Sem dados para o período.")
 
@@ -225,17 +204,31 @@ with col_b:
     if not df_df.empty and "categoria" in df_df.columns:
         por_cat = df_df.groupby("categoria")["valor"].sum().sort_values(ascending=False)
         top = por_cat.head(6)
-        maxv = top.max() or 1
-        grads = ["#FF5C7A,#FF8AA0", "#4AA8FF,#7CC4FF", "#4FE3FF,#8CEBFF",
-                 "#39E0A6,#7CF0C8", "#B98CFF,#D3B8FF", "#FFC24B,#FFD87E"]
-        linhas = ""
-        for i, (cat, val) in enumerate(top.items()):
-            g = grads[i % len(grads)]
-            linhas += (f'<div><div class="c-top"><span class="c-name">{esc(cat)}</span>'
-                       f'<span class="c-val num">{formatar_moeda(val)}</span></div>'
-                       f'<div class="track"><div class="fill" style="width:{val/maxv*100:.0f}%;'
-                       f'background:linear-gradient(90deg,{g})"></div></div></div>')
-        st.markdown(f'<div class="cat">{linhas}</div>', unsafe_allow_html=True)
+        graf_cat = go.Figure(go.Bar(
+            x=top.values[::-1], y=top.index.astype(str)[::-1], orientation="h",
+            marker_color=DESPESA, customdata=top.index.astype(str)[::-1],
+            hovertemplate="<b>%{y}</b><br>R$ %{x:,.2f}<extra></extra>",
+        ))
+        graf_cat.update_layout(**ARCTIC, height=300, showlegend=False)
+        graf_cat.update_xaxes(visible=False)
+        graf_cat.update_yaxes(showgrid=False)
+        escolha_cat = st.plotly_chart(
+            graf_cat, use_container_width=True, key="categorias_interativas",
+            on_select="rerun", selection_mode="points",
+        )
+        pontos_cat = escolha_cat.selection.points if escolha_cat else []
+        if pontos_cat:
+            ponto_cat = pontos_cat[0]
+            categoria_escolhida = ponto_cat.get("y")
+            if categoria_escolhida is None:
+                pos_cat = ponto_cat.get("point_index", ponto_cat.get("pointNumber", -1))
+                if isinstance(pos_cat, int) and 0 <= pos_cat < len(top):
+                    categoria_escolhida = str(top.index[::-1][pos_cat])
+            detalhe_cat = df_df[df_df["categoria"].astype(str) == str(categoria_escolhida)]
+            with st.expander(f"{categoria_escolhida} · {len(detalhe_cat)} lançamentos", expanded=True):
+                _tabela_detalhe(detalhe_cat)
+        else:
+            st.caption("Clique numa barra para ver os lançamentos da categoria.")
         with st.expander("🔍 Ver todas as categorias"):
             tbl = por_cat.reset_index()
             tbl.columns = ["Categoria", "Total"]
@@ -272,6 +265,13 @@ if not df_semanal.empty and "data_dt" in df_semanal.columns:
     wk = df_semanal[(df_semanal["data_dt"].dt.date >= seg) & (df_semanal["data_dt"].dt.date <= dom)]
     gasto_sem = wk["valor"].sum()
 cfg = ler_json(str(CONFIG_FILE)); limite_sem = float(cfg.get("limite_semanal", 0) or 0)
+_limites_salvos = ler_csv("limites_semanais")
+if not _limites_salvos.empty and {"chave", "valor"}.issubset(_limites_salvos.columns):
+    _chaves_limite = _limites_salvos["chave"].astype(str)
+    for _chave in ("padrao", seg.isoformat()):
+        _v = pd.to_numeric(_limites_salvos.loc[_chaves_limite == _chave, "valor"], errors="coerce").dropna()
+        if not _v.empty:
+            limite_sem = float(_v.iloc[-1])
 
 # Fatura C6 Bru — mês corrente.
 # A fatura = detalhe importado (fonte C6 Bank) OU o resumo do Notion (categoria "Cartões").
@@ -438,7 +438,7 @@ if not _out.empty:
 
 st.divider()
 st.markdown(
-    "<p style='text-align:center;color:#2A3A58;font-size:0.75rem;margin-top:14px'>"
-    f"🐧 {APP_NOME} · tema Ártico ❄️"
+    "<p style='text-align:center;color:var(--txt-dim);font-size:0.75rem;margin-top:14px'>"
+    f"🐧 {APP_NOME} · {tema_atual()}"
     "</p>", unsafe_allow_html=True
 )

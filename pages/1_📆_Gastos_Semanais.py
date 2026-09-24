@@ -10,7 +10,9 @@ from auth import exigir_login
 exigir_login()
 
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import date, timedelta
+from ui_theme import paleta_graficos, tema_atual
 
 from config import DESPESAS_FILE, CONFIG_FILE
 from utils import (esc, 
@@ -427,11 +429,10 @@ else:
         with st.expander(f"**{nome}, {dia.strftime('%d/%m')}** — {formatar_moeda(sub['valor'].sum())}", expanded=True):
             for _, r in sub.iterrows():
                 st.markdown(
-                    f"<div style='display:flex;justify-content:space-between;align-items:center;"
-                    f"padding:9px 14px;background:#0E1626;border:1px solid #1E2942;border-radius:10px;margin:4px 0'>"
-                    f"<span style='color:#EAF1FF'>{esc(r['descricao'])}"
-                    f"<span style='color:#5B6889;font-size:.8rem'> · {esc(r.get('categoria',''))} · {esc(r.get('forma_pagamento',''))}</span></span>"
-                    f"<span style='color:#FF5C7A;font-weight:700' class='num'>{formatar_moeda(r['valor'])}</span></div>",
+                    f"<div class='weekly-entry'>"
+                    f"<span class='weekly-entry-name'>{esc(r['descricao'])}"
+                    f"<span class='weekly-entry-meta'> · {esc(r.get('categoria',''))} · {esc(r.get('forma_pagamento',''))}</span></span>"
+                    f"<span class='weekly-entry-value num'>{formatar_moeda(r['valor'])}</span></div>",
                     unsafe_allow_html=True)
 
     # ── Editar / excluir ─────────────────────────────────────
@@ -506,6 +507,31 @@ else:
     _hist["_dt_hist"] = pd.to_datetime(_hist.get("data"), errors="coerce")
     _hist = _hist[_hist["_dt_hist"].notna()].copy()
     _hist["_inicio_semana"] = _hist["_dt_hist"].apply(inicio_semana)
+    _totais_sem = _hist.groupby("_inicio_semana")["valor"].sum().sort_index().tail(8)
+    _semana_grafico = None
+    if not _totais_sem.empty:
+        _pal = paleta_graficos(tema_atual())
+        _rotulos_sem = [d.strftime("%d/%m") for d in _totais_sem.index]
+        _fig_sem = go.Figure(go.Bar(
+            x=_rotulos_sem, y=_totais_sem.values, marker_color=_pal["destaque"],
+            hovertemplate="Semana de %{x}<br>R$ %{y:,.2f}<extra></extra>",
+        ))
+        _fig_sem.update_layout(
+            paper_bgcolor=_pal["fundo"], plot_bgcolor=_pal["fundo"],
+            font=dict(color=_pal["texto"]), margin=dict(l=4, r=4, t=8, b=6),
+            height=220, showlegend=False,
+            xaxis=dict(showgrid=False), yaxis=dict(gridcolor=_pal["grade"], tickprefix="R$ "),
+        )
+        _sel_sem = st.plotly_chart(
+            _fig_sem, use_container_width=True, key="historico_semanal_grafico",
+            on_select="rerun", selection_mode="points",
+        )
+        _pontos_sem = _sel_sem.selection.points if _sel_sem else []
+        if _pontos_sem:
+            _pos_sem = _pontos_sem[0].get("point_index", _pontos_sem[0].get("pointNumber", -1))
+            if isinstance(_pos_sem, int) and 0 <= _pos_sem < len(_totais_sem):
+                _semana_grafico = _totais_sem.index[_pos_sem]
+        st.caption("Clique numa barra para abrir os lançamentos daquela semana.")
     for _ini in sorted(_hist["_inicio_semana"].unique(), reverse=True):
         _fim = _ini + timedelta(days=6)
         _hs = _hist[_hist["_inicio_semana"] == _ini].sort_values("_dt_hist")
@@ -520,7 +546,7 @@ else:
         with st.expander(
             f"{_ini.strftime('%d/%m/%Y')}–{_fim.strftime('%d/%m/%Y')} · "
             f"{formatar_moeda(_tot_h)} · {len(_hs)} lançamento(s){_tag_lim}",
-            expanded=(_ini == SEG),
+            expanded=(_ini == SEG or _ini == _semana_grafico),
         ):
             _edit_hist = _hs[["data", "descricao", "categoria", "forma_pagamento", "banco", "valor", "id"]].copy()
             _edit_hist["data"] = _hs["_dt_hist"].dt.date

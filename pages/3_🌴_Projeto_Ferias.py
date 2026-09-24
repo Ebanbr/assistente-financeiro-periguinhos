@@ -10,6 +10,7 @@ exigir_login()
 import plotly.graph_objects as go
 from datetime import date
 from dateutil.relativedelta import relativedelta
+from ui_theme import estilizar_figura
 
 from config import CONFIG_FILE
 from utils import (
@@ -233,6 +234,7 @@ if meta_valor > 0:
             legend=dict(bgcolor="#161B22", bordercolor="#30363D",
                         font=dict(color="#E6EDF3", size=11), x=1.02, y=0.5),
         )
+        estilizar_figura(fig_pizza)
         st.plotly_chart(fig_pizza, use_container_width=True)
 
 # ── Projeção de crescimento ───────────────────────────────────
@@ -268,6 +270,7 @@ fig_proj.update_layout(
     yaxis=dict(tickprefix="R$ ", gridcolor="#21262D"),
     xaxis=dict(gridcolor="#21262D", tickangle=-45),
 )
+estilizar_figura(fig_proj)
 st.plotly_chart(fig_proj, use_container_width=True)
 
 # ── Simulador ─────────────────────────────────────────────────

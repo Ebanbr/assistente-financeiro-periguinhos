@@ -9,6 +9,7 @@ from auth import exigir_login
 exigir_login()
 import pandas as pd
 import plotly.graph_objects as go
+from ui_theme import estilizar_figura
 from datetime import date
 
 from config import CONFIG_FILE
@@ -173,6 +174,7 @@ def render_pessoa(prefixo, nome, emoji, cor_primaria, cor_secundaria):
                   annotation_font_color="#FFB300", annotation_position="top left")
     DARK_APOS = {**DARK, "xaxis": dict(title="Idade (anos)", gridcolor="#21262D", linecolor="#30363D")}
     fig.update_layout(height=350, **DARK_APOS)
+    estilizar_figura(fig)
     st.plotly_chart(fig, use_container_width=True)
 
     # Simulador
@@ -266,6 +268,7 @@ with aba_casal:
     ))
     DARK_CASAL = {**DARK, "xaxis": dict(title="Idade (anos)", gridcolor="#21262D", linecolor="#30363D")}
     fig2.update_layout(height=380, **DARK_CASAL)
+    estilizar_figura(fig2)
     st.plotly_chart(fig2, use_container_width=True)
 
     # Resumo lado a lado

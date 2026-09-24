@@ -15,16 +15,18 @@ import plotly.graph_objects as go
 
 from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT
 from utils import esc, configurar_pagina, cabecalho_pagina, inicializar_dados, ler_csv, formatar_moeda
+from ui_theme import paleta_graficos, tema_atual
 
 configurar_pagina("Categorias", icone="🔎")
 inicializar_dados()
 
-ICE, AURORA, RECEITA, DESPESA = "#4FE3FF", "#39E0A6", "#4AA8FF", "#FF5C7A"
+_cores = paleta_graficos(tema_atual())
+ICE, AURORA, RECEITA, DESPESA = (_cores["destaque"], _cores["saldo"], _cores["receita"], _cores["despesa"])
 ARCTIC = dict(
-    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#93A2C4", family="Inter", size=12),
-    xaxis=dict(gridcolor="#16223a", linecolor="#1E2942", zeroline=False),
-    yaxis=dict(gridcolor="#16223a", linecolor="#1E2942", zeroline=False),
+    paper_bgcolor=_cores["fundo"], plot_bgcolor=_cores["fundo"],
+    font=dict(color=_cores["texto"], family="Inter", size=12),
+    xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
+    yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False),
     margin=dict(l=6, r=6, t=10, b=6),
 )
 

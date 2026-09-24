@@ -281,13 +281,10 @@ def configurar_pagina(titulo: str, icone: str = "🐧"):
         page_title=f"{icone} {titulo}",
         page_icon=icone,
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
-    # Carrega CSS global
-    css_path = Path(__file__).parent / "style.css"
-    if css_path.exists():
-        with open(css_path, encoding="utf-8") as f:
-            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    from ui_theme import aplicar_tema
+    aplicar_tema()
 
 def cabecalho_pagina(titulo: str, subtitulo: str, icone: str):
     st.markdown(f"# {icone} {titulo}")

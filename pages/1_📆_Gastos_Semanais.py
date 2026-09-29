@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
+from expense_defaults import categoria_do_local
 
 from config import DESPESAS_FILE, CONFIG_FILE
 from utils import (esc, 
@@ -99,16 +100,32 @@ with st.expander("💰 Configurar limites semanais"):
                 invalidar_cache("limites_semanais"); st.rerun()
 
 # ── Lançar gasto ─────────────────────────────────────────────
+if st.session_state.pop("_limpar_novo_gasto", False):
+    st.session_state.pop("novo_gasto_descricao", None)
+    st.session_state.pop("novo_gasto_categoria", None)
+
+def _sugerir_categoria_local():
+    categoria = categoria_do_local(
+        st.session_state.get("novo_gasto_descricao", ""),
+        ler_csv(DESPESAS_FILE), CATEGORIAS_DESPESA,
+    )
+    if categoria:
+        st.session_state["novo_gasto_categoria"] = categoria
+    st.session_state["_categoria_local_sugerida"] = categoria
+
 with st.expander("➕ Lançar gasto da semana", expanded=False):
+    g_desc = st.text_input("Descrição:", placeholder="ex: Cidade Jardim, Recibom, Deskontão",
+                           key="novo_gasto_descricao", on_change=_sugerir_categoria_local)
+    if st.session_state.get("_categoria_local_sugerida"):
+        st.caption(f"Categoria lembrada: {st.session_state['_categoria_local_sugerida']}. Você pode alterar abaixo.")
     with st.form("form_gasto_semana", clear_on_submit=True):
         cg1, cg2, cg3 = st.columns([2, 2, 1])
         with cg1:
-            g_desc = st.text_input("Descrição:", placeholder="ex: Padaria")
             g_data = st.date_input("Data:", value=semana_ref, max_value=HOJE,
                                    format="DD/MM/YYYY", help="Aceita lançamentos retroativos e os envia à semana correta.")
         with cg2:
-            g_cat = st.selectbox("Categoria:", CATEGORIAS_DESPESA)
-            g_pag = st.selectbox("Forma de pagamento:", ["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"])
+            g_cat = st.selectbox("Categoria:", CATEGORIAS_DESPESA, key="novo_gasto_categoria")
+            g_pag = st.selectbox("Forma de pagamento:", ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"])
             g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
         with cg3:
             g_valor = st.number_input("Valor (R$):", min_value=0.0, value=None,
@@ -129,6 +146,8 @@ with st.expander("➕ Lançar gasto da semana", expanded=False):
                 }])
                 n = salvar_despesas_novas(nova)
                 if n > 0:
+                    st.session_state["_limpar_novo_gasto"] = True
+                    st.session_state.pop("_categoria_local_sugerida", None)
                     invalidar_cache("despesas")
                     mensagem_sucesso(f"Gasto lançado: {g_desc.strip()} · {formatar_moeda(g_valor)}")
                     st.rerun()

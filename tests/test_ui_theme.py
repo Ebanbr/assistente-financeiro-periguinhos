@@ -73,3 +73,9 @@ def test_dashboard_renderiza_nos_dois_temas_sem_dados_reais(monkeypatch):
         at.session_state["aparencia"] = "Claro"
         at.run()
         assert not at.exception, [e.message for e in at.exception]
+        if arquivo == "1_📆_Gastos_Semanais.py":
+            pagamento = next(s for s in at.selectbox if s.label == "Forma de pagamento:")
+            assert pagamento.value == "💳 Crédito"
+            at.text_input(key="novo_gasto_descricao").set_value("Compra demonstrativa").run()
+            assert not at.exception
+            assert at.selectbox(key="novo_gasto_categoria").value == "Mercado"

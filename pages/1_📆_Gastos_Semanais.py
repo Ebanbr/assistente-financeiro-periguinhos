@@ -495,11 +495,14 @@ else:
                         full.loc[m, "banco"]           = str(row["banco"]) if "crédito" in str(row["forma_pagamento"]).casefold() else ""
                 if ids_del:
                     full = full[~full["id"].astype(str).isin(ids_del)]
-                salvar_parquet("despesas", full)
-                invalidar_cache("despesas")
-                n_del = len(ids_del)
-                mensagem_sucesso(f"Alterações salvas!" + (f" {n_del} excluído(s)." if n_del else ""))
-                st.rerun()
+                # checa o retorno: se a trava de segurança bloquear, não finge sucesso
+                if salvar_parquet("despesas", full):
+                    invalidar_cache("despesas")
+                    n_del = len(ids_del)
+                    mensagem_sucesso("Alterações salvas!" + (f" {n_del} excluído(s)." if n_del else ""))
+                    st.rerun()
+                else:
+                    mensagem_erro("Gravação bloqueada por segurança — nada foi alterado. Recarregue e tente de novo.")
 
     st.divider()
     st.markdown('<div class="p-title"><span class="tbar"></span> Ranking da semana por categoria</div>',

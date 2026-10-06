@@ -20,3 +20,8 @@ Thumbs.db
 
 # Backups locais da migracao Notion (contem dados financeiros)
 backups_notion_migracao/
+
+# Artefatos de teste de preview de navegador (CODEX) — nao versionar
+tests/*-preview-profile/
+tests/*.png
+.pytest_cache/

@@ -86,6 +86,10 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 - `main` == `origin/main`, árvore limpa. Último commit: `fdc5f1b` (hardening pós-revisão CODEX + limpeza do repo).
 - CODEX adicionou ~15 commits (projeção de fatura, tema claro/escuro, gastos semanais expandidos). **Tudo compila, testes passam, guards intactos.**
 - Correções recentes minhas: checagem do retorno de `salvar_parquet` no editor da semana; `.gitignore` dos artefatos de preview/teste.
+- **Encerramento manual da fatura** (pág. 1): botão "🔒 Encerrar fatura" grava `encerrada_em` (ISO) em `fechamentos_fatura` no registro do mês seguinte. A fatura fica em aberto até o Bruno encerrar; ao encerrar, a semana é recortada (`janela_semana`) e zera a partir do dia seguinte. Sem nenhum encerramento manual, vale a regra automática do dia 4. Funções puras: `faturas_encerradas`, `fatura_aberta`, `janela_semana`.
+- **Regra do encerramento (Bruno):** a data de encerramento divide tudo. Até ela = passado (aba Faturas fechadas); depois dela = Semana atual + Histórico + conta para a fatura seguinte. Registros antigos de `fechamentos_fatura` (só `dia`, sem `encerrada_em`) também valem como encerramento. Fatura encerrada e não importada aparece na aba de fechadas com os lançamentos manuais no crédito (`lancamentos_semanais_fatura`) até ser importada.
+- **Pág. 1 em abas:** "📆 Semana atual" (lançamentos manuais `fonte=Semanal` + Histórico de semanas embaixo) e "🧾 Faturas fechadas" (passado = faturas importadas do C6, agrupadas em semanas seg–dom pela data da compra; `semanas_fatura_importada`). Parcelas antigas/compras atrasadas ficam num bloco à parte; semanas + bloco = total da fatura (validado ao centavo em 05/2025–09/2026).
+- **Fechamento real do C6 NÃO é dia 4:** pelos dados importados, a última compra de cada fatura cai no dia 28–2. A aba de faturas fechadas lê o ciclo da própria fatura (`ciclo_fatura_importada`). A data da compra das importações antigas só existe em `observacao` ("Compra em dd/mm/aaaa"); o importador novo grava `data_compra` (também dd/mm/aaaa).
 
 ### Pendências / decisões do Bruno (NÃO mexer sem confirmar)
 1. **Sidebar colapsada por padrão** + nav no topo (mudança de UX do CODEX) — confirmar se fica.
@@ -101,4 +105,4 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 
 - `origin` é **HTTPS** (não voltar pra SSH). `git fetch` antes de `push`.
 - Commits terminam com:
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
+  `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`

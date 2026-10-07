@@ -1,0 +1,52 @@
+name: Sincronizar Notion
+
+on:
+  schedule:
+    # 03:00 UTC = 00:00 em Brasília. O GitHub pode atrasar alguns minutos.
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}   # botão "Run workflow" para rodar na hora
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-notion
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Montar secrets.toml (só no runner, nunca commitado)
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: |
+          mkdir -p .streamlit
+          python - <<'PY'
+          import json, os
+          q = json.dumps  # strings JSON são strings básicas válidas em TOML
+          gcp = json.loads(os.environ["GCP_SERVICE_ACCOUNT"])
+          linhas = [f"SPREADSHEET_ID = {q(os.environ['SPREADSHEET_ID'])}", "", "[gcp_service_account]"]
+          linhas += [f"{k} = {q(str(v))}" for k, v in gcp.items()]
+          linhas += ["", "[notion]",
+                     f"token = {q(os.environ['NOTION_TOKEN'])}",
+                     f"database_id = {q(os.environ['NOTION_DATABASE_ID'])}"]
+          open(".streamlit/secrets.toml", "w", encoding="utf-8").write("\n".join(linhas) + "\n")
+          PY
+
+      - name: Sincronizar
+        run: python scripts/sync_notion.py

@@ -238,14 +238,14 @@ def _gravacao_bloqueada(tabela: str, df: pd.DataFrame, permitir_vazio: bool) -> 
     return None
 
 
-def _salvar_gsheet(tabela: str, df: pd.DataFrame):
+def _salvar_gsheet(tabela: str, df: pd.DataFrame) -> bool:
     try:
         ws = _get_worksheet(tabela)
         _ler_gsheet.clear()  # invalida cache após escrita
 
         if df.empty:
             ws.clear()
-            return
+            return True
 
         df_export = df.copy()
         df_export = _normalizar_schema_tabela(df_export, tabela)
@@ -271,8 +271,10 @@ def _salvar_gsheet(tabela: str, df: pd.DataFrame):
         # Limpa linhas extras que sobraram de versões anteriores maiores
         total_linhas = len(rows) + 1
         _gsheet_com_retry(ws.resize, rows=max(total_linhas, 1))
+        return True
     except Exception as e:
         st.error(f"❌ Erro ao salvar Google Sheets ({tabela}): {e}")
+        return False
 
 # ── FUNÇÕES PÚBLICAS ─────────────────────────────────────────
 
@@ -500,8 +502,7 @@ def salvar_parquet(tabela: str, df: pd.DataFrame, permitir_vazio: bool = False) 
         return False
 
     if _usar_gsheets():
-        _salvar_gsheet(tab, df)
-        return True
+        return _salvar_gsheet(tab, df)
 
     arquivo = DATA_DIR / f"{tab}.parquet"
     if df.empty:
@@ -517,8 +518,10 @@ def salvar_parquet(tabela: str, df: pd.DataFrame, permitir_vazio: bool = False) 
             _dt = _parse_data_robusta(df_save["data"])
             df_save["data"] = _dt.dt.strftime("%Y-%m-%d").where(_dt.notna(), df_save["data"])
         df_save.to_parquet(arquivo, engine="pyarrow", index=False)
+        return True
     except Exception as e:
         mensagem_erro(f"Erro ao salvar {tabela}: {e}")
+        return False
 
 def _salvar_novas(tabela: str, df: pd.DataFrame) -> int:
     """Adiciona linhas novas sem sobrescrever existentes. Retorna -1 se a leitura falhar."""

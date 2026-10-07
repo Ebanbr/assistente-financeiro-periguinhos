@@ -101,6 +101,19 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 
 ---
 
+## 6.1 Sincronização automática Notion → Sheets
+
+- **Só leitura do Notion** (a Pri lança no Notion, o Bruno vê no dashboard). Nada é escrito no Notion.
+- GitHub Actions `.github/workflows/sync-notion.yml`, todo dia 03:00 UTC (00:00 Brasília) + botão "Run workflow". Roda `scripts/sync_notion.py` (`--dry-run` para simular local).
+- Regra única em `notion_import.py` (`linhas_do_notion`, `mesclar_notion`), usada também pelo botão de Configurações. Troca só `fonte=Notion`; C6/Manual/Semanal intactos.
+- **Categoria = "Tipo" do Notion, cru.** As regras do app (`mapeamentos`) NÃO são aplicadas (`aplicar_regras=False`): ligá-las recategorizaria ~840 lançamentos de uma vez. Decisão do Bruno se quiser mudar.
+- Busca resolve só a relação "Tipo" (~60s); falha ao ler título de categoria aborta (não grava "Outros" em silêncio). Retry em 429/5xx.
+- Travas: Notion vazio ou queda > 50% → aborta sem gravar. `salvar_parquet` agora devolve False se o Sheets falhar.
+- **Repo é PÚBLICO:** logs do Actions são públicos → o script imprime só contagens. Secrets no GitHub: `SPREADSHEET_ID`, `GCP_SERVICE_ACCOUNT` (JSON), `NOTION_TOKEN`, `NOTION_DATABASE_ID` — cadastrados pelo Bruno via `scripts/configurar_secrets_github.py`.
+- GitHub desativa agendamentos de repo público após 60 dias sem commits (avisa por e-mail; reativar em Actions).
+
+---
+
 ## 7. Git
 
 - `origin` é **HTTPS** (não voltar pra SSH). `git fetch` antes de `push`.

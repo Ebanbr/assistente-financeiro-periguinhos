@@ -7,6 +7,7 @@
 # ============================================================
 
 import re
+import time
 import requests
 import streamlit as st
 
@@ -46,13 +47,21 @@ def normalizar_id(valor: str) -> str:
 
 # ── Chamadas HTTP com tratamento de erro ────────────────────
 
-def _get(path: str):
-    r = requests.get(f"{API}/{path}", headers=_headers(), timeout=TIMEOUT)
+def _com_retry(fn, tentativas=5):
+    """Repete em limite de taxa (429) e instabilidade (5xx) do Notion."""
+    for i in range(tentativas):
+        r = fn()
+        if r.status_code != 429 and r.status_code < 500:
+            return r
+        espera = float(r.headers.get("Retry-After", 0) or 0) or 2 ** i
+        time.sleep(min(espera, 30))
     return r
 
+def _get(path: str):
+    return _com_retry(lambda: requests.get(f"{API}/{path}", headers=_headers(), timeout=TIMEOUT))
+
 def _post(path: str, body: dict):
-    r = requests.post(f"{API}/{path}", headers=_headers(), json=body, timeout=TIMEOUT)
-    return r
+    return _com_retry(lambda: requests.post(f"{API}/{path}", headers=_headers(), json=body, timeout=TIMEOUT))
 
 
 # ── Extração genérica de propriedades ───────────────────────
@@ -103,6 +112,9 @@ def extrair_valor(prop: dict, cache_titulos: dict | None = None):
     # Fallback
     return str(v) if v is not None else ""
 
+_FALHAS = "__falhas__"
+
+
 def titulo_pagina(page_id: str, cache: dict) -> str:
     """Busca o título de uma página (com cache) — usado p/ resolver relações."""
     if page_id in cache:
@@ -110,15 +122,20 @@ def titulo_pagina(page_id: str, cache: dict) -> str:
     nome = ""
     try:
         r = _get(f"pages/{page_id}")
-        if r.status_code == 200:
+        ok = r.status_code == 200
+        if ok:
             props = r.json().get("properties", {})
             for p in props.values():
                 if p.get("type") == "title":
                     nome = _texto(p.get("title"))
                     break
     except Exception:
-        pass
-    cache[page_id] = nome
+        ok = False
+    if ok:
+        cache[page_id] = nome
+        return nome
+    # Falha não entra no cache: fica registrada para quem chamou decidir.
+    cache.setdefault(_FALHAS, set()).add(page_id)
     return nome
 
 
@@ -154,8 +171,15 @@ def inspecionar(database_id: str):
 
 # ── Busca completa (todas as páginas, paginado) ─────────────
 
-def buscar_registros(database_id: str, resolver_relacoes: bool = True, limite_paginas: int = 200):
-    """Retorna (lista_de_dicts, erro). Cada dict = {nome_propriedade: valor}."""
+def buscar_registros(database_id: str, resolver_relacoes: bool = True, limite_paginas: int = 200,
+                     so_relacoes=None):
+    """Retorna (lista_de_dicts, erro). Cada dict = {nome_propriedade: valor}.
+
+    ``so_relacoes`` (ex.: {"Tipo"}) resolve o título só dessas relações; as
+    demais voltam como IDs. Cada relação resolvida custa uma chamada por página
+    relacionada, então limitar ao que é usado deixa a busca bem mais rápida.
+    Se algum título não puder ser lido, devolve erro em vez de categorias vazias.
+    """
     dbid = normalizar_id(database_id)
     registros = []
     cache_titulos = {} if resolver_relacoes else None
@@ -171,7 +195,7 @@ def buscar_registros(database_id: str, resolver_relacoes: bool = True, limite_pa
             return registros, f"Erro {r.status_code}: {r.text[:300]}"
         data = r.json()
         for pg in data.get("results", []):
-            linha = {nome: extrair_valor(p, cache_titulos)
+            linha = {nome: extrair_valor(p, cache_titulos if so_relacoes is None or nome in so_relacoes else None)
                      for nome, p in pg.get("properties", {}).items()}
             registros.append(linha)
         paginas += 1
@@ -179,4 +203,8 @@ def buscar_registros(database_id: str, resolver_relacoes: bool = True, limite_pa
             break
         cursor = data.get("next_cursor")
 
+    falhas = (cache_titulos or {}).get(_FALHAS)
+    if falhas:
+        return registros, (f"Não foi possível ler o título de {len(falhas)} página(s) relacionada(s) "
+                           f"(categoria). Tente de novo em alguns minutos.")
     return registros, None

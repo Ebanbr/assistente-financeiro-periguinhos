@@ -13,7 +13,8 @@ from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, 
 from utils import (esc, ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
                    listar_categorias, invalidar_cache, mensagem_sucesso, mensagem_erro)
 from auth import login_page, usuario_logado, logout
-from ui_theme import aplicar_tema, paleta_graficos, tema_atual
+from ui_theme import (aplicar_tema, paleta_graficos, tema_atual, eixo_reais, valor_curto,
+                      cores_por_categoria, cor_outras)
 
 # ── Login ─────────────────────────────────────────────────────
 if not st.session_state.get("logado"):
@@ -34,10 +35,12 @@ ARCTIC = dict(
     paper_bgcolor=_cores["fundo"], plot_bgcolor=_cores["fundo"],
     font=dict(color=_cores["texto"], family="Inter", size=12),
     xaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
-               tickfont=dict(color=_cores["texto"])),
+               tickfont=dict(color=_cores["texto"]), automargin=True),
     yaxis=dict(gridcolor=_cores["grade"], linecolor=_cores["grade"], zeroline=False,
-               tickfont=dict(color=_cores["texto"])),
-    margin=dict(l=6, r=6, t=10, b=6),
+               tickfont=dict(color=_cores["texto"]), automargin=True),
+    # automargin abre espaço para os rótulos; as margens fixas são só o respiro.
+    margin=dict(l=4, r=12, t=10, b=4),
+    hoverlabel=dict(font=dict(family="Inter", size=13)),
 )
 
 # ── Sidebar ──────────────────────────────────────────────────
@@ -106,6 +109,17 @@ def serie_mensal(df):
 
 sr, sd = serie_mensal(df_r), serie_mensal(df_d)
 idx = sorted(set(sr.index).union(sd.index))
+# O gráfico mostra só meses realizados: lançamentos agendados no Notion (até
+# 2027) puxavam a curva para zero no fim. Em "Todos", começa no primeiro mês
+# com fatura importada — antes disso as despesas de cartão não existiam na base.
+_mes_atual = pd.Period(date.today(), freq="M")
+meses_futuros = [p for p in idx if p > _mes_atual]
+idx = [p for p in idx if p <= _mes_atual]
+if ano_sel == "Todos" and not df_d.empty and "fonte" in df_d.columns:
+    _c6 = df_d.loc[df_d["fonte"].astype(str) == "C6 Bank", "data_dt"].dropna()
+    if not _c6.empty:
+        _inicio_fluxo = _c6.min().to_period("M")
+        idx = [p for p in idx if p >= _inicio_fluxo] or idx
 fluxo = pd.DataFrame(index=idx)
 fluxo["receitas"] = sr.reindex(idx).fillna(0) if idx else []
 fluxo["despesas"] = sd.reindex(idx).fillna(0) if idx else []
@@ -169,19 +183,23 @@ with col_a:
     st.markdown('<div class="p-title"><span class="tbar"></span> Fluxo mensal</div>', unsafe_allow_html=True)
     if idx:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=labels_fluxo, y=fluxo["receitas"], name="Receitas",
-            mode="lines+markers", marker=dict(size=8),
-            line=dict(color=RECEITA, width=2.4), fill="tozeroy", fillcolor=_cores["receita_fill"],
-            hovertemplate="<b>%{x}</b><br>Receitas: R$ %{y:,.2f}<extra></extra>"))
-        fig.add_trace(go.Scatter(
-            x=labels_fluxo, y=fluxo["despesas"], name="Despesas",
-            mode="lines+markers", marker=dict(size=8),
-            line=dict(color=DESPESA, width=2.4), fill="tozeroy", fillcolor=_cores["despesa_fill"],
-            hovertemplate="<b>%{x}</b><br>Despesas: R$ %{y:,.2f}<extra></extra>"))
-        fig.update_layout(**ARCTIC, height=300, hovermode="x unified",
-                          legend=dict(orientation="h", x=0, y=1.14, bgcolor="rgba(0,0,0,0)",
-                                      font=dict(color=_cores["texto"], size=12)))
+        for _col, _nome, _cor in (("receitas", "Receitas", RECEITA), ("despesas", "Despesas", DESPESA)):
+            fig.add_trace(go.Scatter(
+                x=labels_fluxo, y=fluxo[_col], name=_nome, mode="lines+markers",
+                line=dict(color=_cor, width=2.6),
+                marker=dict(size=7, color=_cor, line=dict(width=2, color=_cores["marcador_borda"])),
+                customdata=[formatar_moeda(v) for v in fluxo[_col]],
+                hovertemplate=f"{_nome}: %{{customdata}}<extra></extra>",
+            ))
+        _vals_y, _txt_y = eixo_reais(fluxo[["receitas", "despesas"]].to_numpy().max())
+        _passo_x = max(1, -(-len(labels_fluxo) // 6))   # no máximo ~6 rótulos: cabe no celular
+        fig.update_layout(**ARCTIC, height=320, hovermode="x unified",
+                          legend=dict(orientation="h", x=0, y=1.12, bgcolor="rgba(0,0,0,0)",
+                                      entrywidth=110, font=dict(color=_cores["texto"], size=12)))
+        fig.update_xaxes(showgrid=False, tickmode="array", tickangle=0,
+                         tickvals=labels_fluxo[::-1][::_passo_x][::-1])
+        fig.update_yaxes(tickmode="array", tickvals=_vals_y, ticktext=_txt_y,
+                         range=[0, _vals_y[-1] * 1.04])
         escolha_fluxo = st.plotly_chart(
             fig, use_container_width=True, key="fluxo_mensal_interativo", theme=None,
             on_select="rerun", selection_mode="points",
@@ -197,7 +215,9 @@ with col_a:
                 with st.expander(f"Lançamentos de {labels_fluxo[pos]} · {'receitas' if curva == 0 else 'despesas'}", expanded=True):
                     _tabela_detalhe(detalhe_mes)
         else:
-            st.caption("Clique em um ponto para abrir os lançamentos daquele mês.")
+            _nota_fut = (f" Lançamentos agendados de {len(meses_futuros)} mês(es) futuro(s) não entram no gráfico."
+                         if meses_futuros else "")
+            st.caption("Clique em um ponto para abrir os lançamentos daquele mês." + _nota_fut)
     else:
         st.info("Sem dados para o período.")
 
@@ -206,14 +226,25 @@ with col_b:
     if not df_df.empty and "categoria" in df_df.columns:
         por_cat = df_df.groupby("categoria")["valor"].sum().sort_values(ascending=False)
         top = por_cat.head(6)
+        _cats = top.index.astype(str)[::-1]
+        _nomes_curtos = [c if len(c) <= 24 else c[:23].rstrip() + "…" for c in _cats]
+        # Cada categoria tem cor própria e fixa: o ranking de TODO o histórico
+        # define o slot, então o filtro de período não repinta as barras.
+        _ordem_global = df_d.groupby("categoria")["valor"].sum().sort_values(ascending=False).index
+        _mapa_cor = cores_por_categoria(_ordem_global, tema_atual())
         graf_cat = go.Figure(go.Bar(
-            x=top.values[::-1], y=top.index.astype(str)[::-1], orientation="h",
-            marker_color=DESPESA, customdata=top.index.astype(str)[::-1],
-            hovertemplate="<b>%{y}</b><br>R$ %{x:,.2f}<extra></extra>",
+            x=top.values[::-1], y=_cats, orientation="h",
+            marker=dict(color=[_mapa_cor.get(c, cor_outras(tema_atual())) for c in _cats],
+                        cornerradius=4),
+            text=[valor_curto(v) for v in top.values[::-1]], textposition="outside",
+            textfont=dict(color=_cores["texto"], size=12), cliponaxis=False,
+            customdata=[formatar_moeda(v) for v in top.values[::-1]],
+            hovertemplate="<b>%{y}</b><br>%{customdata}<extra></extra>",
         ))
-        graf_cat.update_layout(**ARCTIC, height=300, showlegend=False)
-        graf_cat.update_xaxes(visible=False)
-        graf_cat.update_yaxes(showgrid=False)
+        graf_cat.update_layout(**ARCTIC, height=320, showlegend=False, bargap=0.35)
+        graf_cat.update_xaxes(visible=False, range=[0, float(top.max()) * 1.28])
+        graf_cat.update_yaxes(showgrid=False, tickmode="array", tickvals=list(_cats),
+                              ticktext=_nomes_curtos, ticks="", tickfont=dict(size=12.5))
         escolha_cat = st.plotly_chart(
             graf_cat, use_container_width=True, key="categorias_interativas", theme=None,
             on_select="rerun", selection_mode="points",

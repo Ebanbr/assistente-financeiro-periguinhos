@@ -51,14 +51,59 @@ def paleta_graficos(tema: str) -> dict:
             "receita": "#176b57", "despesa": "#b34f46", "saldo": "#176b57",
             "destaque": "#176b57", "texto": "#586960", "grade": "#d6ddd2",
             "fundo": "rgba(0,0,0,0)", "receita_fill": "rgba(23,107,87,0.10)",
-            "despesa_fill": "rgba(179,79,70,0.10)",
+            "despesa_fill": "rgba(179,79,70,0.10)", "marcador_borda": "#ffffff",
         }
     return {
         "receita": "#4AA8FF", "despesa": "#FF5C7A", "saldo": "#39E0A6",
         "destaque": "#4FE3FF", "texto": "#93A2C4", "grade": "#1E2942",
         "fundo": "rgba(0,0,0,0)", "receita_fill": "rgba(74,168,255,0.14)",
-        "despesa_fill": "rgba(255,92,122,0.12)",
+        "despesa_fill": "rgba(255,92,122,0.12)", "marcador_borda": "#0B1020",
     }
+
+
+# Paleta categórica (identidade, não ranking), validada para daltonismo nos
+# dois temas: cada slot é uma categoria fixa. Ordem importa — não reordenar.
+CATEGORICAS = {
+    "Claro":  ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"],
+    "Escuro": ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"],
+}
+COR_OUTRAS = {"Claro": "#a8a294", "Escuro": "#4a5675"}
+
+
+def cores_por_categoria(ordem_global, tema: str) -> dict:
+    """{categoria: cor}. A cor segue a categoria (pela posição no ranking de
+    todo o histórico), então não muda quando o filtro de período muda."""
+    pal = CATEGORICAS["Claro" if tema == "Claro" else "Escuro"]
+    return {str(c): pal[i] for i, c in enumerate(list(ordem_global)[:len(pal)])}
+
+
+def cor_outras(tema: str) -> str:
+    return COR_OUTRAS["Claro" if tema == "Claro" else "Escuro"]
+
+
+def valor_curto(v: float) -> str:
+    """R$ em formato curto para eixos: 'R$ 15 mil', 'R$ 1,2 mi', 'R$ 800'."""
+    v = float(v)
+    if abs(v) >= 1_000_000:
+        n, suf = v / 1_000_000, " mi"
+    elif abs(v) >= 1_000:
+        n, suf = v / 1_000, " mil"
+    else:
+        n, suf = v, ""
+    txt = f"{n:,.1f}".rstrip("0").rstrip(".") if n % 1 else f"{n:,.0f}"
+    return "R$ " + txt.replace(",", "X").replace(".", ",").replace("X", ".") + suf
+
+
+def eixo_reais(vmax: float, divisoes: int = 4):
+    """Ticks 'redondos' de 0 até cobrir vmax: (tickvals, ticktext)."""
+    vmax = float(vmax or 0)
+    if vmax <= 0:
+        return [0], [valor_curto(0)]
+    bruto = vmax / divisoes
+    ordem = 10 ** (len(str(int(bruto))) - 1)
+    passo = next(m * ordem for m in (1, 2, 2.5, 5, 10) if m * ordem >= bruto)
+    vals = [i * passo for i in range(int(-(-vmax // passo)) + 1)]
+    return vals, [valor_curto(v) for v in vals]
 
 
 def estilizar_figura(fig) -> None:

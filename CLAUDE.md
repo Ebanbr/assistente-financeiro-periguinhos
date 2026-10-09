@@ -81,11 +81,12 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 
 ---
 
-## 6. Estado atual (2026-10-06)
+## 6. Estado atual (2026-10-09)
 
-- `main` == `origin/main`, árvore limpa. Último commit: `fdc5f1b` (hardening pós-revisão CODEX + limpeza do repo).
-- CODEX adicionou ~15 commits (projeção de fatura, tema claro/escuro, gastos semanais expandidos). **Tudo compila, testes passam, guards intactos.**
-- Correções recentes minhas: checagem do retorno de `salvar_parquet` no editor da semana; `.gitignore` dos artefatos de preview/teste.
+- `main` == `origin/main`, árvore limpa, **43 testes passando**. Último commit: `eb466a3` (dashboard: gráficos legíveis + cor por categoria). Antes: `382acd9` (sync Notion), `19d7468` (encerramento de fatura + aba Faturas fechadas).
+- Fatura **10/2026 do C6 BRU já importada** (07/10). Sync do Notion rodou com sucesso no GitHub (1.200 registros → 888 despesas + 285 receitas).
+- CODEX adicionou ~15 commits antes (projeção de fatura, tema claro/escuro, gastos semanais expandidos). Guards intactos.
+- **Dashboard (`app.py`):** eixos com `automargin` + valores curtos (`ui_theme.valor_curto`/`eixo_reais`, "R$ 20 mil"); Fluxo mensal vai da 1ª fatura C6 importada até o mês atual (meses futuros agendados no Notion ficam fora, com aviso); linhas retas, sem preenchimento. "Onde foi o dinheiro": **uma cor por categoria** (`ui_theme.CATEGORICAS`, paleta validada p/ daltonismo nos 2 temas; slot = ranking de TODO o histórico, não muda com o filtro; fora do top 8 = cinza). Bruno reprovou tudo-vermelho — não voltar para cor única.
 - **Encerramento manual da fatura** (pág. 1): botão "🔒 Encerrar fatura" grava `encerrada_em` (ISO) em `fechamentos_fatura` no registro do mês seguinte. A fatura fica em aberto até o Bruno encerrar; ao encerrar, a semana é recortada (`janela_semana`) e zera a partir do dia seguinte. Sem nenhum encerramento manual, vale a regra automática do dia 4. Funções puras: `faturas_encerradas`, `fatura_aberta`, `janela_semana`.
 - **Regra do encerramento (Bruno):** a data de encerramento divide tudo. Até ela = passado (aba Faturas fechadas); depois dela = Semana atual + Histórico + conta para a fatura seguinte. Registros antigos de `fechamentos_fatura` (só `dia`, sem `encerrada_em`) também valem como encerramento. Fatura encerrada e não importada aparece na aba de fechadas com os lançamentos manuais no crédito (`lancamentos_semanais_fatura`) até ser importada.
 - **Pág. 1 em abas:** "📆 Semana atual" (lançamentos manuais `fonte=Semanal` + Histórico de semanas embaixo) e "🧾 Faturas fechadas" (passado = faturas importadas do C6, agrupadas em semanas seg–dom pela data da compra; `semanas_fatura_importada`). Parcelas antigas/compras atrasadas ficam num bloco à parte; semanas + bloco = total da fatura (validado ao centavo em 05/2025–09/2026).
@@ -95,6 +96,10 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 1. **Sidebar colapsada por padrão** + nav no topo (mudança de UX do CODEX) — confirmar se fica.
 2. **Projeção de parcelas só popula após RE-IMPORTAR as faturas** pelo app (dados antigos, importados por script, não têm colunas de parcela). Não é bug.
 3. Validar contraste do **tema Claro**.
+4. **Dia de fechamento padrão = 4** na Semana atual/Fatura estimada, mas o C6 real fecha ~dia 2 (ver abaixo). Perguntei se troca p/ 2 — sem resposta. Na prática o botão "Encerrar fatura" resolve.
+5. **Categorias do Notion:** sync traz o "Tipo" cru (regras do app desligadas). Ligar `aplicar_regras=True` recategoriza ~840 lançamentos — só se o Bruno pedir.
+6. Avisos do GitHub Actions (Node 20 em `checkout@v4`/`setup-python@v5`; ubuntu-latest → 26 em 19/10/2026): não quebram nada; ofereci atualizar as versões.
+7. Faturas fechadas não importadas mostram só **crédito** lançado à mão; PIX/débito anteriores ao encerramento não aparecem em lugar nenhum — ofereci incluir.
 
 ### Regra de trabalho (feedback do Bruno)
 - **Não recategorizar em massa por conta própria.** Já houve "cancela" por overreach (mover restaurantes/criar 241 regras sem pedir). Categorias são decisão do Bruno — ele dirige, eu executo o que for pedido.

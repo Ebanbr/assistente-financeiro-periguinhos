@@ -14,8 +14,10 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
+from cupom_fiscal import (CATEGORIAS_CUPOM, baixar_xml, ler_nfce, sugerir_categorias,
+                          agrupar_por_categoria, ja_lancado, nome_lembrado)
 
-from config import DESPESAS_FILE, CONFIG_FILE
+from config import DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM
 from utils import (esc, 
     configurar_pagina, cabecalho_pagina, inicializar_dados,
     ler_csv, salvar_parquet, formatar_moeda, mensagem_sucesso, mensagem_erro, mensagem_aviso,
@@ -162,6 +164,128 @@ with tab_atual:
                         st.rerun()
                     elif n == 0:
                         mensagem_aviso("Esse gasto já parece estar lançado (mesma data, descrição e valor).")
+
+    # ── Lançar cupom fiscal (NFC-e pelo link do QR Code) ─────────
+    if st.session_state.pop("_limpar_cupom", False):
+        st.session_state.pop("cupom_link", None)
+    with st.expander("🧾 Lançar cupom fiscal (QR Code)", expanded=False):
+        st.caption("Aponte a câmera do celular para o QR Code do cupom, copie o link e cole aqui. "
+                   "Cada item recebe uma categoria; o gasto entra na semana como uma linha por categoria.")
+        cq1, cq2 = st.columns([4, 1])
+        with cq1:
+            link_cupom = st.text_input("Link do QR Code:", key="cupom_link",
+                                       placeholder="http://nfce.sefaz.pe.gov.br/nfce/consulta?p=...")
+        with cq2:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            ler_cupom = st.button("🔎 Ler cupom", use_container_width=True)
+        if ler_cupom:
+            try:
+                with st.spinner("Consultando a SEFAZ…"):
+                    st.session_state["cupom_lido"] = ler_nfce(baixar_xml(link_cupom))
+            except ValueError as e:
+                st.session_state.pop("cupom_lido", None)
+                mensagem_erro(str(e))
+            except Exception:
+                st.session_state.pop("cupom_lido", None)
+                mensagem_erro("Não consegui falar com a SEFAZ agora. Tente de novo em instantes.")
+
+        cupom = st.session_state.get("cupom_lido")
+        if cupom:
+            df_itens_hist = ler_csv(ITENS_CUPOM_FILE)
+            cats_cupom = list(dict.fromkeys(CATEGORIAS_CUPOM + CATEGORIAS_DESPESA))
+            data_cupom = pd.to_datetime(cupom["data"], errors="coerce")
+            st.markdown(
+                f"{data_cupom.strftime('%d/%m/%Y') if pd.notna(data_cupom) else '—'} · "
+                f"{len(cupom['itens'])} item(ns) · total **{formatar_moeda(cupom['total'])}**")
+            if ja_lancado(cupom["chave"], df_itens_hist):
+                mensagem_aviso("Esse cupom já foi lançado.")
+            else:
+                estab_cupom = st.text_input(
+                    "Estabelecimento:", key=f"cupom_estab_{cupom['chave']}",
+                    value=nome_lembrado(cupom["cnpj"], df_itens_hist) or cupom["estabelecimento"].title(),
+                    help="Nome que aparece nos gastos. Fica lembrado para as próximas notas desse CNPJ.").strip()
+                itens = cupom["itens"].copy()
+                itens["categoria"] = sugerir_categorias(itens, df_itens_hist, cats_cupom)
+                itens_ed = st.data_editor(
+                    itens, hide_index=True, use_container_width=True, num_rows="fixed",
+                    key=f"editor_cupom_{cupom['chave']}",
+                    column_config={
+                        "item":       None,
+                        "ncm":        None,
+                        "descricao":  st.column_config.TextColumn("Item", disabled=True, width="large"),
+                        "quantidade": st.column_config.NumberColumn("Qtd", disabled=True, format="%.3f"),
+                        "unidade":    st.column_config.TextColumn("Un", disabled=True, width="small"),
+                        "valor":      st.column_config.NumberColumn("Valor", disabled=True, format="R$ %.2f"),
+                        "categoria":  st.column_config.SelectboxColumn("Categoria", options=cats_cupom, required=True),
+                    },
+                    column_order=["descricao", "quantidade", "unidade", "valor", "categoria"],
+                )
+                por_cat = agrupar_por_categoria(itens_ed, cupom["total"])
+                st.markdown("**Vai entrar assim na semana:** " + " · ".join(
+                    f"{esc(c)} {formatar_moeda(v)}" for c, v in por_cat.items()))
+                if abs(float(por_cat.sum()) - float(cupom["total"])) >= 0.01:
+                    mensagem_aviso(f"A soma dos itens ({formatar_moeda(por_cat.sum())}) não bate com o total "
+                                   f"da nota ({formatar_moeda(cupom['total'])}). Confira antes de lançar.")
+
+                formas = ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"]
+                cp1, cp2 = st.columns(2)
+                with cp1:
+                    forma_cupom = st.selectbox(
+                        "Forma de pagamento:", formas, key=f"cupom_forma_{cupom['chave']}",
+                        index=formas.index(cupom["forma_pagamento"]) if cupom["forma_pagamento"] in formas else None,
+                        placeholder="Escolha a forma de pagamento")
+                with cp2:
+                    cartao_cupom = st.selectbox("Cartão (somente para crédito):",
+                                                ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"],
+                                                key=f"cupom_cartao_{cupom['chave']}")
+
+                if st.button("💾 Lançar cupom", type="primary", use_container_width=True):
+                    if not estab_cupom:
+                        mensagem_erro("Informe o estabelecimento.")
+                    elif not forma_cupom:
+                        mensagem_erro("Escolha a forma de pagamento.")
+                    elif pd.isna(data_cupom) or data_cupom.date() > HOJE:
+                        mensagem_erro("A data do cupom é inválida.")
+                    else:
+                        criado = agora()
+                        obs = f"NFC-e {cupom['chave']}"
+                        linhas, ids_cat = [], {}
+                        for cat, valor in por_cat.items():
+                            ids_cat[cat] = gerar_id()
+                            linhas.append({
+                                "id": ids_cat[cat], "data": data_cupom.strftime("%Y-%m-%d"),
+                                "descricao": f"{estab_cupom} · {cat}", "categoria": cat,
+                                "valor": round(float(valor), 2), "forma_pagamento": forma_cupom,
+                                "banco": cartao_cupom if forma_cupom == "💳 Crédito" else "",
+                                "status": "Pago", "observacao": obs,
+                                "fonte": FONTE_SEMANAL, "criado_em": criado,
+                            })
+                        n = salvar_despesas_novas(pd.DataFrame(linhas))
+                        if n < 0:
+                            pass   # leitura falhou: a própria função já avisou
+                        elif n < len(linhas):
+                            mensagem_aviso("Parte desse cupom já parecia lançada (mesma data, descrição e valor). "
+                                           "Confira os gastos da semana.")
+                            invalidar_cache("despesas")
+                        else:
+                            invalidar_cache("despesas")
+                            novos_itens = itens_ed.assign(
+                                id=[gerar_id() for _ in range(len(itens_ed))],
+                                chave=cupom["chave"], data=data_cupom.strftime("%Y-%m-%d"),
+                                estabelecimento=estab_cupom, cnpj=cupom["cnpj"],
+                                despesa_id=itens_ed["categoria"].map(ids_cat), criado_em=criado,
+                            )[COLUNAS_ITENS_CUPOM]
+                            base_itens = pd.concat([df_itens_hist, novos_itens], ignore_index=True)
+                            if salvar_parquet("itens_cupom", base_itens):
+                                invalidar_cache("itens_cupom")
+                                mensagem_sucesso(f"Cupom lançado: {estab_cupom} · "
+                                                 f"{formatar_moeda(cupom['total'])}")
+                            else:
+                                mensagem_aviso("Os gastos entraram na semana, mas os itens do cupom não foram "
+                                               "guardados. As categorias deste cupom não serão lembradas.")
+                            st.session_state.pop("cupom_lido", None)
+                            st.session_state["_limpar_cupom"] = True
+                            st.rerun()
 
     st.divider()
 

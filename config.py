@@ -125,6 +125,13 @@ COLUNAS_MAPEAMENTOS = [
 
 MAPEAMENTOS_FILE = DATA_DIR / "mapeamentos.parquet"
 
+# Itens dos cupons fiscais (NFC-e) lançados pelo QR Code — um por linha
+ITENS_CUPOM_FILE = DATA_DIR / "itens_cupom.parquet"
+COLUNAS_ITENS_CUPOM = [
+    "id", "chave", "data", "estabelecimento", "cnpj", "item", "descricao", "ncm",
+    "quantidade", "unidade", "valor", "categoria", "despesa_id", "criado_em"
+]
+
 # Mapeamentos padrão iniciais
 MAPEAMENTOS_PADRAO = [
     # ── RECEITAS — Salários e Rendimentos ────────────────────

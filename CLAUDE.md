@@ -29,7 +29,7 @@ python -m pytest -q
 ```
 
 - `requirements.txt` é **unpinned** de propósito. **NÃO fixar versões com `==`** — pins quebraram o deploy do Streamlit Cloud (sem wheel compatível). Lição aprendida.
-- Testes: `tests/test_core.py`, `tests/test_expense_defaults.py`, `tests/test_ui_theme.py`.
+- Testes: `tests/test_core.py`, `tests/test_expense_defaults.py`, `tests/test_ui_theme.py`, `tests/test_cupom_fiscal.py` (XML fictício — repo é público, nunca commitar cupom real).
 
 ---
 
@@ -47,6 +47,7 @@ python -m pytest -q
 | `expense_defaults.py` | Lembra categoria por estabelecimento + crédito como padrão do gasto semanal. |
 | `notion_sync.py` | Sincroniza lançamentos direto da API do Notion. |
 | `activity_log.py` | Log de atividade. |
+| `cupom_fiscal.py` | NFC-e pelo link do QR Code (só SEFAZ-PE): baixa o XML, lê itens, sugere categoria (item já classificado > NCM > 🛒 Supermercado), agrupa por categoria. |
 | `style.css` / `style-light.css` | Skin do tema escuro / complemento do claro. |
 
 ### Páginas (`pages/`)
@@ -57,7 +58,7 @@ python -m pytest -q
 5. `5_⚙️_Configuracoes.py` — import C6 (zip AES), sync Notion, mapeamentos/regras.
 
 ### Tabelas no Google Sheets
-`despesas`, `receitas`, `cartoes`, `lancamentos`, `metas`, `mapeamentos` + (adicionadas pelo CODEX) `faturas_base`, `fechamentos_fatura`, `limites_semanais`.
+`despesas`, `receitas`, `cartoes`, `lancamentos`, `metas`, `mapeamentos` + (adicionadas pelo CODEX) `faturas_base`, `fechamentos_fatura`, `limites_semanais` + `itens_cupom` (um item de cupom fiscal por linha; `despesa_id` aponta a linha agrupada em `despesas`).
 Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manual`, `Notion`, `C6 Bank`, `Semanal`}.
 
 ---
@@ -91,6 +92,8 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 - **Regra do encerramento (Bruno):** a data de encerramento divide tudo. Até ela = passado (aba Faturas fechadas); depois dela = Semana atual + Histórico + conta para a fatura seguinte. Registros antigos de `fechamentos_fatura` (só `dia`, sem `encerrada_em`) também valem como encerramento. Fatura encerrada e não importada aparece na aba de fechadas com os lançamentos manuais no crédito (`lancamentos_semanais_fatura`) até ser importada.
 - **Pág. 1 em abas:** "📆 Semana atual" (lançamentos manuais `fonte=Semanal` + Histórico de semanas embaixo) e "🧾 Faturas fechadas" (passado = faturas importadas do C6, agrupadas em semanas seg–dom pela data da compra; `semanas_fatura_importada`). Parcelas antigas/compras atrasadas ficam num bloco à parte; semanas + bloco = total da fatura (validado ao centavo em 05/2025–09/2026).
 - **Fechamento real do C6 NÃO é dia 4:** pelos dados importados, a última compra de cada fatura cai no dia 28–2. A aba de faturas fechadas lê o ciclo da própria fatura (`ciclo_fatura_importada`). A data da compra das importações antigas só existe em `observacao` ("Compra em dd/mm/aaaa"); o importador novo grava `data_compra` (também dd/mm/aaaa).
+
+- **Cupom fiscal (2026-10-14):** seção "🧾 Lançar cupom fiscal (QR Code)" na pág. 1. O link do QR da SEFAZ-PE devolve o XML da NFC-e sem CAPTCHA. Grava uma linha por categoria em `despesas` (`fonte=Semanal`, `observacao="NFC-e <chave>"`) + itens em `itens_cupom`; bloqueia cupom repetido pela chave. **Só presente/futuro — NÃO recategorizar o passado** (decisão do Bruno). Categorias de item propostas em `CATEGORIAS_CUPOM` (Hortifruti, Carnes e Peixes, Frios e Laticínios, Mercearia, Bebidas, Limpeza, Higiene e Beleza…). Próximo: ler o QR pela câmera.
 
 ### Pendências / decisões do Bruno (NÃO mexer sem confirmar)
 1. **Sidebar colapsada por padrão** + nav no topo (mudança de UX do CODEX) — confirmar se fica.

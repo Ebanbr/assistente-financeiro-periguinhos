@@ -140,7 +140,10 @@ OFFLINE = "2" * 2 + "2610" + "0" * 14 + "65" + "0" * 12 + "9" + "1" * 9   # AAMM
 def test_qr_offline_ja_traz_data_total_e_cnpj():
     from cupom_fiscal import dados_do_qr_offline
     link = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe{OFFLINE}|2|1|14|56.61|BC41"
-    assert dados_do_qr_offline(link) == {"chave": OFFLINE, "cnpj": "0" * 14, "data": "2026-10-14", "total": 56.61}
+    dados = dados_do_qr_offline(link)
+    assert {k: dados[k] for k in ("chave", "cnpj", "data", "total")} == {
+        "chave": OFFLINE, "cnpj": "0" * 14, "data": "2026-10-14", "total": 56.61}
+    assert chave_do_link(dados["link"]) == OFFLINE           # link guardado para buscar os itens depois
     assert dados_do_qr_offline(LINK) is None                     # nota normal (online)
 
 
@@ -162,3 +165,13 @@ def test_linha_so_com_total_e_reconhecida_e_nao_conta_como_lancado():
     despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), f"NFC-e {CHAVE}", ""]})
     assert linhas_pendentes(OFFLINE, despesas).tolist() == [True, False, False]
     assert not ja_lancado(OFFLINE, despesas)        # deixa lançar com os itens, trocando a linha do total
+
+
+def test_lista_so_cupons_cuja_linha_do_total_ainda_existe():
+    from cupom_fiscal import cupons_aguardando, marca_pendente
+    outro = OFFLINE[:-1] + "2"
+    pend = pd.DataFrame({"chave": [OFFLINE, outro, OFFLINE], "link": ["a", "b", "c"]})
+    despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), f"NFC-e {outro}"]})
+    lista = cupons_aguardando(pend, despesas)
+    assert lista["chave"].tolist() == [OFFLINE] and lista["link"].tolist() == ["c"]
+    assert cupons_aguardando(pd.DataFrame(), despesas).empty

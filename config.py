@@ -129,6 +129,10 @@ MAPEAMENTOS_FILE = DATA_DIR / "mapeamentos.parquet"
 TIPOS_CATEGORIA_FILE = DATA_DIR / "tipos_categoria.parquet"
 COLUNAS_TIPOS_CATEGORIA = ["id", "categoria", "tipo", "atualizado_em"]
 
+# Cupons de nota offline lançados só com o total: guarda o link do QR para buscar os itens depois
+CUPONS_PENDENTES_FILE = DATA_DIR / "cupons_pendentes.parquet"
+COLUNAS_CUPONS_PENDENTES = ["id", "chave", "link", "data", "estabelecimento", "valor", "criado_em"]
+
 # Itens dos cupons fiscais (NFC-e) lançados pelo QR Code — um por linha
 ITENS_CUPOM_FILE = DATA_DIR / "itens_cupom.parquet"
 COLUNAS_ITENS_CUPOM = [

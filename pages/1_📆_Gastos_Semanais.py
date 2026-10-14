@@ -15,10 +15,11 @@ from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
 from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, ler_cupom, link_do_qr, sugerir_categorias,
-                          linhas_pendentes, marca_pendente,
+                          linhas_pendentes, marca_pendente, cupons_aguardando,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
-from config import DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM
+from config import (DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM,
+                    CUPONS_PENDENTES_FILE, COLUNAS_CUPONS_PENDENTES)
 from utils import (esc, 
     configurar_pagina, cabecalho_pagina, inicializar_dados,
     ler_csv, salvar_parquet, formatar_moeda, mensagem_sucesso, mensagem_erro, mensagem_aviso,
@@ -170,7 +171,36 @@ with tab_atual:
     if st.session_state.pop("_limpar_cupom", False):
         st.session_state.pop("cupom_link", None)
         st.session_state["_cupom_foto_n"] = st.session_state.get("_cupom_foto_n", 0) + 1
-    with st.expander("🧾 Lançar cupom fiscal (QR Code)", expanded=False):
+    df_cupons_pend = ler_csv(CUPONS_PENDENTES_FILE)
+    aguardando = cupons_aguardando(df_cupons_pend, ler_csv(DESPESAS_FILE))
+    titulo_cupom = "🧾 Lançar cupom fiscal (QR Code)"
+    if not aguardando.empty:
+        titulo_cupom += f" · ⏳ {len(aguardando)} esperando a SEFAZ"
+    with st.expander(titulo_cupom, expanded=False):
+        # ── Notas offline já lançadas com o total: o link ficou guardado, não precisa do papel ──
+        if not aguardando.empty:
+            st.markdown(f"**⏳ Cupons esperando a SEFAZ ({len(aguardando)})** — o link do QR Code ficou guardado; "
+                        "não precisa guardar o papel.")
+            for _, cp in aguardando.iterrows():
+                data_cp = pd.to_datetime(cp["data"], errors="coerce")
+                ca1, ca2 = st.columns([3, 1])
+                with ca1:
+                    st.markdown(f"{data_cp.strftime('%d/%m/%Y') if pd.notna(data_cp) else '—'} · "
+                                f"{esc(cp['estabelecimento'])} · {formatar_moeda(float(cp['valor'] or 0))}")
+                with ca2:
+                    if st.button("🔄 Já chegou?", key=f"verif_cupom_{cp['chave']}", use_container_width=True):
+                        try:
+                            with st.spinner("Consultando a SEFAZ…"):
+                                st.session_state["cupom_lido"] = ler_cupom(cp["link"])
+                            st.session_state.pop("cupom_pendente", None)
+                        except NotaPendente:
+                            st.info("Ainda não chegou na SEFAZ. Tente mais tarde — o mercado tem até 24 h.")
+                        except ValueError as e:
+                            mensagem_erro(str(e))
+                        except Exception:
+                            mensagem_erro("Não consegui falar com a SEFAZ agora. Tente de novo em instantes.")
+            st.divider()
+
         st.caption("Tire uma foto do QR Code do cupom (ou cole o link). Cada item recebe uma categoria; "
                    "o gasto entra na semana como uma linha por categoria.")
         n_foto = st.session_state.get("_cupom_foto_n", 0)
@@ -388,6 +418,15 @@ with tab_atual:
                         }]))
                         if n > 0:
                             invalidar_cache("despesas")
+                            # guarda o link do QR: depois é só tocar em "Já chegou?", sem precisar do papel
+                            nova_pend = pd.DataFrame([{
+                                "id": gerar_id(), "chave": pendente["chave"], "link": pendente["link"],
+                                "data": data_p.strftime("%Y-%m-%d"), "estabelecimento": estab_p,
+                                "valor": pendente["total"], "criado_em": agora(),
+                            }])[COLUNAS_CUPONS_PENDENTES]
+                            if salvar_parquet("cupons_pendentes", pd.concat([df_cupons_pend, nova_pend],
+                                                                            ignore_index=True)):
+                                invalidar_cache("cupons_pendentes")
                             mensagem_sucesso(f"Lançado: {estab_p} · {formatar_moeda(pendente['total'])} "
                                              "(itens pendentes)")
                             st.session_state.pop("cupom_pendente", None)

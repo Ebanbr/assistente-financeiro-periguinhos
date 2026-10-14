@@ -123,7 +123,8 @@ def dados_do_qr_offline(link):
         data = pd.Timestamp(year=2000 + int(chave[2:4]), month=int(chave[4:6]), day=dia)
     except (ValueError, TypeError):
         return None
-    return {"chave": chave, "cnpj": chave[6:20], "data": data.strftime("%Y-%m-%d"), "total": total}
+    return {"chave": chave, "cnpj": chave[6:20], "data": data.strftime("%Y-%m-%d"), "total": total,
+            "link": link}
 
 
 def ler_cupom(link):
@@ -140,6 +141,15 @@ def ler_cupom(link):
 
 def marca_pendente(chave):
     return f"NFC-e {chave} · itens pendentes"
+
+
+def cupons_aguardando(pendentes, despesas):
+    """Cupons lançados só com o total cuja linha ainda está na semana (esperando os itens da SEFAZ)."""
+    if pendentes.empty or not {"chave", "link"}.issubset(pendentes.columns):
+        return pendentes.iloc[0:0]
+    marcas = set(despesas["observacao"].astype(str).str.strip()) if "observacao" in despesas.columns else set()
+    ativos = pendentes[pendentes["chave"].astype(str).map(lambda c: marca_pendente(c) in marcas)]
+    return ativos.drop_duplicates("chave", keep="last").reset_index(drop=True)
 
 
 def linhas_pendentes(chave, despesas):

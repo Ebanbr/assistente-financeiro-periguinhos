@@ -364,6 +364,7 @@ def _resolve_tabela(arquivo) -> str:
     if "log_atividades"   in s: return "log_atividades"
     if "itens_cupom"      in s: return "itens_cupom"
     if "tipos_categoria"  in s: return "tipos_categoria"
+    if "cupons_pendentes" in s: return "cupons_pendentes"
     return ""
 
 def aplicar_mapeamentos(df: pd.DataFrame, tipo: str = None) -> pd.DataFrame:

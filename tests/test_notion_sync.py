@@ -21,7 +21,7 @@ def test_linhas_do_notion_separa_receita_despesa_e_descarta_invalidos():
     ]
     d, r = linhas_do_notion(regs)
     assert [(x["descricao"], x["valor"], x["categoria"], x["forma_pagamento"]) for x in d] == [
-        ("Escola", 130.0, "Madre de Deus", "BB")]
+        ("Escola", 130.0, "🏫 Madre de Deus", "BB")]
     assert [(x["descricao"], x["status"]) for x in r] == [("Salário", "A Receber")]
     assert all(x["fonte"] == "Notion" for x in d + r)
 
@@ -44,7 +44,7 @@ def test_mesclar_troca_so_notion_e_mantem_categoria_do_notion(monkeypatch):
     df_d, df_r, td, tr, pulados = mesclar_notion(d_atual, r_atual, d, r)
     assert df_d["fonte"].tolist().count("Notion") == 2 and "Velho" not in df_d["descricao"].tolist()
     assert set(df_d.loc[df_d["fonte"] != "Notion", "id"]) == {"2", "3"}
-    assert df_d.loc[df_d["descricao"] == "Escola", "categoria"].item() == "Madre de Deus"
+    assert df_d.loc[df_d["descricao"] == "Escola", "categoria"].item() == "🏫 Madre de Deus"
     assert (td, tr, pulados) == (2, 0, 1)
     assert df_r["id"].tolist() == ["4"]
     df_d2, *_ = mesclar_notion(d_atual, r_atual, d, r, aplicar_regras=True)

@@ -12,6 +12,7 @@ from datetime import datetime
 import pandas as pd
 
 from utils import aplicar_mapeamentos, gerar_id, agora
+from categorias import com_emoji
 
 # Propriedades do banco da família (os palpites padrão da tela de Configurações).
 MAPA_PADRAO = {
@@ -79,7 +80,7 @@ def linhas_do_notion(registros, mapa=None):
         else:
             sinal_neg = "-" in str(bruto)
             val = limpar_valor(bruto)
-        cat = limpar_categoria(limpar_link_notion(r.get(m["categoria"], "")))
+        cat = com_emoji(limpar_categoria(limpar_link_notion(r.get(m["categoria"], ""))))
         banco = str(r.get(m["banco"], "")).strip()
         if m["pago"] != SEM_PAGO:
             pago = str(r.get(m["pago"], "")).lower() in ("true", "yes", "sim", "1", "✅")

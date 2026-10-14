@@ -95,6 +95,9 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 
 - **Cupom fiscal (2026-10-14):** seção "🧾 Lançar cupom fiscal (QR Code)" na pág. 1. O link do QR da SEFAZ-PE devolve o XML da NFC-e sem CAPTCHA. Grava uma linha por categoria em `despesas` (`fonte=Semanal`, `observacao="NFC-e <chave>"`) + itens em `itens_cupom`; bloqueia cupom repetido pela chave. **Só presente/futuro — NÃO recategorizar o passado** (decisão do Bruno). Categorias de item propostas em `CATEGORIAS_CUPOM` (Hortifruti, Carnes e Peixes, Frios e Laticínios, Mercearia, Bebidas, Limpeza, Higiene e Beleza…). Próximo: ler o QR pela câmera.
 
+- **Emojis nas categorias (2026-10-14):** `categorias.py` (`NOMES_COM_EMOJI`, `com_emoji`) dá emoji às categorias que vinham cruas (Padaria → 🥖 Padaria etc., por parte em "Pix Avulso, AABB"). Aplicado no sync do Notion (`linhas_do_notion`) para não voltar o nome cru, e renomeado uma vez na planilha (despesas, receitas, mapeamentos; backup em `data/backup_emojis_2026-10-14/`). Internet/Streaming/Saúde foram juntadas com as que já tinham emoji. Nova categoria crua no Notion → acrescentar em `NOMES_COM_EMOJI`.
+- **Limpeza de categorias sem lançamento:** o Bruno desistiu ("pode dar merda"). NÃO excluir regras/categorias sem ele pedir de novo.
+
 ### Pendências / decisões do Bruno (NÃO mexer sem confirmar)
 1. **Sidebar colapsada por padrão** + nav no topo (mudança de UX do CODEX) — confirmar se fica.
 2. **Projeção de parcelas só popula após RE-IMPORTAR as faturas** pelo app (dados antigos, importados por script, não têm colunas de parcela). Não é bug.

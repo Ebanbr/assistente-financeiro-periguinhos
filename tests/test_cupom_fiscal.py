@@ -83,8 +83,10 @@ def test_agrupa_por_categoria_fechando_com_o_total():
     assert agrupar_por_categoria(itens, 20.63)["H"] == 15.15   # centavo de arredondamento vai na maior
 
 
-def test_detecta_cupom_ja_lancado():
-    assert ja_lancado(CHAVE, pd.DataFrame({"chave": [CHAVE]}))
+def test_cupom_so_conta_como_lancado_enquanto_as_linhas_existem():
+    despesas = pd.DataFrame({"observacao": [f"NFC-e {CHAVE}", ""]})
+    assert ja_lancado(CHAVE, despesas)
+    assert not ja_lancado(CHAVE, despesas.iloc[[1]])      # linhas excluídas → pode relançar
     assert not ja_lancado(CHAVE, pd.DataFrame())
 
 

@@ -125,6 +125,10 @@ COLUNAS_MAPEAMENTOS = [
 
 MAPEAMENTOS_FILE = DATA_DIR / "mapeamentos.parquet"
 
+# Tipo de cada categoria de despesa na página Custo de vida (Fixa, Variável essencial…)
+TIPOS_CATEGORIA_FILE = DATA_DIR / "tipos_categoria.parquet"
+COLUNAS_TIPOS_CATEGORIA = ["id", "categoria", "tipo", "atualizado_em"]
+
 # Itens dos cupons fiscais (NFC-e) lançados pelo QR Code — um por linha
 ITENS_CUPOM_FILE = DATA_DIR / "itens_cupom.parquet"
 COLUNAS_ITENS_CUPOM = [

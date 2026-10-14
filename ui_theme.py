@@ -37,6 +37,7 @@ def aplicar_tema() -> None:
             ("pages/2_🔎_Categorias.py", "Categorias", "🔎"),
             ("pages/3_🌴_Projeto_Ferias.py", "Férias", "🌴"),
             ("pages/4_👴👵_Aposentadoria.py", "Futuro", "👴"),
+            ("pages/6_💰_Custo_de_Vida.py", "Custo", "💰"),
             ("pages/5_⚙️_Configuracoes.py", "Ajustes", "⚙️"),
         )
         for coluna, (caminho, rotulo, icone) in zip(st.columns(len(destinos)), destinos):

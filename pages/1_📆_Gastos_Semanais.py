@@ -197,7 +197,7 @@ with tab_atual:
             st.markdown(
                 f"{data_cupom.strftime('%d/%m/%Y') if pd.notna(data_cupom) else '—'} · "
                 f"{len(cupom['itens'])} item(ns) · total **{formatar_moeda(cupom['total'])}**")
-            if ja_lancado(cupom["chave"], df_itens_hist):
+            if ja_lancado(cupom["chave"], ler_csv(DESPESAS_FILE)):
                 mensagem_aviso("Esse cupom já foi lançado.")
             else:
                 estab_cupom = st.text_input(
@@ -275,7 +275,11 @@ with tab_atual:
                                 estabelecimento=estab_cupom, cnpj=cupom["cnpj"],
                                 despesa_id=itens_ed["categoria"].map(ids_cat), criado_em=criado,
                             )[COLUNAS_ITENS_CUPOM]
-                            base_itens = pd.concat([df_itens_hist, novos_itens], ignore_index=True)
+                            # relançamento (linhas excluídas antes): troca os itens antigos do mesmo cupom
+                            base_itens = df_itens_hist
+                            if not base_itens.empty and "chave" in base_itens.columns:
+                                base_itens = base_itens[base_itens["chave"].astype(str) != str(cupom["chave"])]
+                            base_itens = pd.concat([base_itens, novos_itens], ignore_index=True)
                             if salvar_parquet("itens_cupom", base_itens):
                                 invalidar_cache("itens_cupom")
                                 mensagem_sucesso(f"Cupom lançado: {estab_cupom} · "

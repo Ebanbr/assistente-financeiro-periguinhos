@@ -56,6 +56,7 @@ python -m pytest -q
 3. `3_🌴_Projeto_Ferias.py` — meta de viagem.
 4. `4_👴👵_Aposentadoria.py` — projeção de futuro.
 5. `5_⚙️_Configuracoes.py` — import C6 (zip AES), sync Notion, mapeamentos/regras.
+6. `6_💰_Custo_de_Vida.py` — custo mínimo para viver = média mensal de Fixas + Variáveis essenciais (lógica pura em `custo_vida.py`). Tipos: Fixa / Variável essencial / Variável cortável / Fora da conta; classificação aprovada pelo Bruno em `CLASSIFICACAO_PADRAO`, ajustes salvos na aba `tipos_categoria`. Exclui `fonte=Semanal` e receitas C6 (reembolsos); janela começa na 1ª fatura C6. Fora da conta (decisão do Bruno): 💳 Cartões (fatura importada é que vale), 💸 Pix Avulso (ele vai analisar), 🐷 Poupança Kids, ajuda à família (Mãe/Pai/Sandra).
 
 ### Tabelas no Google Sheets
 `despesas`, `receitas`, `cartoes`, `lancamentos`, `metas`, `mapeamentos` + (adicionadas pelo CODEX) `faturas_base`, `fechamentos_fatura`, `limites_semanais` + `itens_cupom` (um item de cupom fiscal por linha; `despesa_id` aponta a linha agrupada em `despesas`).

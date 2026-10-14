@@ -180,7 +180,11 @@ def nome_lembrado(cnpj, historico_itens):
     return nomes.iloc[-1] if not nomes.empty else None
 
 
-def ja_lancado(chave, historico_itens):
-    if not chave or historico_itens.empty or "chave" not in historico_itens.columns:
+def ja_lancado(chave, despesas):
+    """O cupom conta como lançado enquanto alguma linha dele existir nas despesas.
+
+    Se as linhas forem excluídas na semana, o mesmo cupom pode ser lançado de novo.
+    """
+    if not chave or despesas.empty or "observacao" not in despesas.columns:
         return False
-    return historico_itens["chave"].astype(str).eq(str(chave)).any()
+    return despesas["observacao"].astype(str).str.strip().eq(f"NFC-e {chave}").any()

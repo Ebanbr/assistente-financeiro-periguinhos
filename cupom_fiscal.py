@@ -5,7 +5,7 @@ completo da nota, sem CAPTCHA. Tudo aqui é função pura, exceto `baixar_xml`.
 """
 import re
 import xml.etree.ElementTree as ET
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import pandas as pd
 
@@ -56,7 +56,10 @@ _TPAG_FORMA = {"01": "💵 Dinheiro", "03": "💳 Crédito", "04": "💳 Débito
 
 def validar_link(link):
     """Devolve o link normalizado se for um QR Code de NFC-e conhecido; senão levanta ValueError."""
-    link = (link or "").strip()
+    # celular costuma copiar o link com o "|" codificado (%7C) e às vezes com espaço/quebra de linha
+    link = re.sub(r"\s+", "", unquote(link or ""))
+    # alguns caixas/leitores entregam ".../consultarNFCe<chave>|..." sem o "?p="
+    link = re.sub(r"(consultar?NFCe|consulta)/?(\d{44}\|)", r"\1?p=\2", link, flags=re.I)
     if not link:
         raise ValueError("Cole o link do QR Code do cupom.")
     if not re.match(r"^https?://", link, re.I):
@@ -70,8 +73,45 @@ def validar_link(link):
 
 
 def chave_do_link(link):
-    m = re.search(r"[?&]p=(\d{44})\|", link or "")
+    m = re.search(r"[?&]p=(\d{44})\|", unquote(link or ""))
     return m.group(1) if m else None
+
+
+def link_do_qr(imagem):
+    """Lê o QR Code de uma foto (bytes ou arquivo) e devolve o texto, ou None se não achar."""
+    import zxingcpp
+    from PIL import Image, ImageOps
+
+    foto = ImageOps.exif_transpose(Image.open(imagem)).convert("L")
+    # foto de celular é grande e o QR do cupom é pequeno: tenta inteira e reduzida
+    tentativas = [foto]
+    if max(foto.size) > 1600:
+        escala = 1600 / max(foto.size)
+        tentativas.append(foto.resize((int(foto.width * escala), int(foto.height * escala))))
+    for img in tentativas:
+        achados = zxingcpp.read_barcodes(img, formats=zxingcpp.BarcodeFormat.QRCode)
+        textos = [a.text for a in achados if a.text]
+        if textos:
+            return next((t for t in textos if "sefaz" in t.lower()), textos[0])
+    return None
+
+
+def emitida_offline(link):
+    """Chave com tipo de emissão 9 = contingência offline (o caixa estava sem SEFAZ)."""
+    chave = chave_do_link(validar_link(link))
+    return bool(chave) and chave[34] == "9"
+
+
+def ler_cupom(link):
+    """Baixa e lê a nota; explica o caso da nota offline que a SEFAZ ainda não recebeu."""
+    link = validar_link(link)
+    try:
+        return ler_nfce(baixar_xml(link))
+    except ValueError:
+        if emitida_offline(link):
+            raise ValueError("Essa nota foi emitida em contingência (o caixa estava offline) e a SEFAZ "
+                             "ainda não a recebeu. O mercado tem até 24 horas para enviar — tente mais tarde.")
+        raise
 
 
 def baixar_xml(link, timeout=30):

@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
-from cupom_fiscal import (CATEGORIAS_CUPOM, baixar_xml, ler_nfce, sugerir_categorias,
+from cupom_fiscal import (CATEGORIAS_CUPOM, ler_cupom, link_do_qr, sugerir_categorias,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
 from config import DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM
@@ -168,20 +168,40 @@ with tab_atual:
     # ── Lançar cupom fiscal (NFC-e pelo link do QR Code) ─────────
     if st.session_state.pop("_limpar_cupom", False):
         st.session_state.pop("cupom_link", None)
+        st.session_state["_cupom_foto_n"] = st.session_state.get("_cupom_foto_n", 0) + 1
     with st.expander("🧾 Lançar cupom fiscal (QR Code)", expanded=False):
-        st.caption("Aponte a câmera do celular para o QR Code do cupom, copie o link e cole aqui. "
-                   "Cada item recebe uma categoria; o gasto entra na semana como uma linha por categoria.")
+        st.caption("Tire uma foto do QR Code do cupom (ou cole o link). Cada item recebe uma categoria; "
+                   "o gasto entra na semana como uma linha por categoria.")
+        n_foto = st.session_state.get("_cupom_foto_n", 0)
+        foto_qr = st.file_uploader("📷 Foto do QR Code", type=["jpg", "jpeg", "png", "webp"],
+                                   key=f"cupom_foto_{n_foto}",
+                                   help="No celular, toque aqui e escolha Câmera para fotografar o QR Code.")
+        foto_cam = None
+        if st.toggle("Usar a câmera aqui na página", key="cupom_usar_camera"):
+            foto_cam = st.camera_input("Aponte para o QR Code", key=f"cupom_camera_{n_foto}")
+        foto = foto_cam or foto_qr
+        ler_agora = False
+        if foto is not None and st.session_state.get("_cupom_foto_lida") != foto.file_id:
+            st.session_state["_cupom_foto_lida"] = foto.file_id
+            texto_qr = link_do_qr(foto)
+            if texto_qr:
+                st.session_state["cupom_link"] = texto_qr
+                ler_agora = True
+            else:
+                mensagem_erro("Não achei o QR Code na foto. Tente de novo mais perto, com o QR Code inteiro, "
+                              "nítido e bem iluminado.")
+
         cq1, cq2 = st.columns([4, 1])
         with cq1:
             link_cupom = st.text_input("Link do QR Code:", key="cupom_link",
                                        placeholder="http://nfce.sefaz.pe.gov.br/nfce/consulta?p=...")
         with cq2:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            ler_cupom = st.button("🔎 Ler cupom", use_container_width=True)
-        if ler_cupom:
+            botao_ler = st.button("🔎 Ler cupom", use_container_width=True)
+        if botao_ler or ler_agora:
             try:
                 with st.spinner("Consultando a SEFAZ…"):
-                    st.session_state["cupom_lido"] = ler_nfce(baixar_xml(link_cupom))
+                    st.session_state["cupom_lido"] = ler_cupom(link_cupom)
             except ValueError as e:
                 st.session_state.pop("cupom_lido", None)
                 mensagem_erro(str(e))

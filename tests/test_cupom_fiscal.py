@@ -3,7 +3,7 @@ import pytest
 
 from cupom_fiscal import (
     CATEGORIA_PADRAO_CUPOM, agrupar_por_categoria, categoria_por_ncm, chave_do_link,
-    ja_lancado, ler_nfce, nome_lembrado, sugerir_categorias, validar_link,
+    emitida_offline, ja_lancado, ler_nfce, link_do_qr, nome_lembrado, sugerir_categorias, validar_link,
 )
 
 CHAVE = "2" * 44
@@ -98,3 +98,37 @@ def test_lembra_o_nome_dado_ao_cnpj():
     assert nome_lembrado("1", hist) == "Posto Arraial"
     assert nome_lembrado("2", hist) is None
     assert nome_lembrado("1", pd.DataFrame()) is None
+
+
+def test_aceita_link_sem_p_e_com_barra_codificada():
+    chave = "2" * 44
+    sem_p = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe{chave}|2|1|14|56.61|ABC"
+    assert chave_do_link(validar_link(sem_p)) == chave
+    assert chave_do_link(validar_link(LINK.replace("|", "%7C"))) == CHAVE
+
+
+def test_reconhece_nota_emitida_offline():
+    offline = "2" * 34 + "9" + "2" * 9          # 35º dígito = tipo de emissão
+    assert emitida_offline(f"http://nfce.sefaz.pe.gov.br/nfce/consulta?p={offline}|2|1|14|5|AB")
+    assert not emitida_offline(LINK)
+
+
+def test_le_o_link_de_uma_foto_do_qr_code():
+    import io
+    import zxingcpp
+    from PIL import Image
+    gerar = getattr(zxingcpp, "create_barcode", None)
+    if gerar:
+        img = Image.fromarray(gerar(LINK, zxingcpp.BarcodeFormat.QRCode).to_image(scale=4))
+    else:
+        img = Image.fromarray(zxingcpp.write_barcode(zxingcpp.BarcodeFormat.QRCode, LINK, 400, 400))
+    foto = Image.new("L", (1200, 1600), 255)
+    foto.paste(img.convert("L"), (300, 500))
+    arquivo = io.BytesIO()
+    foto.save(arquivo, format="JPEG")
+    arquivo.seek(0)
+    assert link_do_qr(arquivo) == LINK
+    vazio = io.BytesIO()
+    Image.new("L", (300, 300), 255).save(vazio, format="PNG")
+    vazio.seek(0)
+    assert link_do_qr(vazio) is None

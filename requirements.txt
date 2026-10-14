@@ -8,3 +8,4 @@ google-auth
 rapidfuzz
 requests
 pyzipper
+zxing-cpp

@@ -132,3 +132,33 @@ def test_le_o_link_de_uma_foto_do_qr_code():
     Image.new("L", (300, 300), 255).save(vazio, format="PNG")
     vazio.seek(0)
     assert link_do_qr(vazio) is None
+
+
+OFFLINE = "2" * 2 + "2610" + "0" * 14 + "65" + "0" * 12 + "9" + "1" * 9   # AAMM=2610, tpEmis=9
+
+
+def test_qr_offline_ja_traz_data_total_e_cnpj():
+    from cupom_fiscal import dados_do_qr_offline
+    link = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe{OFFLINE}|2|1|14|56.61|BC41"
+    assert dados_do_qr_offline(link) == {"chave": OFFLINE, "cnpj": "0" * 14, "data": "2026-10-14", "total": 56.61}
+    assert dados_do_qr_offline(LINK) is None                     # nota normal (online)
+
+
+def test_nota_offline_nao_recebida_vira_pendente(monkeypatch):
+    import cupom_fiscal
+    from cupom_fiscal import NotaPendente, ler_cupom
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml",
+                        lambda link: '<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><erro>236</erro></nfeProc>')
+    with pytest.raises(NotaPendente) as erro:
+        ler_cupom(f"http://nfce.sefaz.pe.gov.br/nfce/consulta?p={OFFLINE}|2|1|14|56.61|BC41")
+    assert erro.value.dados["total"] == 56.61
+    with pytest.raises(ValueError) as erro:                          # nota online não encontrada: erro comum
+        ler_cupom(LINK)
+    assert not isinstance(erro.value, NotaPendente)
+
+
+def test_linha_so_com_total_e_reconhecida_e_nao_conta_como_lancado():
+    from cupom_fiscal import linhas_pendentes, marca_pendente
+    despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), f"NFC-e {CHAVE}", ""]})
+    assert linhas_pendentes(OFFLINE, despesas).tolist() == [True, False, False]
+    assert not ja_lancado(OFFLINE, despesas)        # deixa lançar com os itens, trocando a linha do total

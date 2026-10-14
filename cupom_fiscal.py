@@ -102,16 +102,51 @@ def emitida_offline(link):
     return bool(chave) and chave[34] == "9"
 
 
+class NotaPendente(ValueError):
+    """Nota offline que a SEFAZ ainda não recebeu; `dados` traz o que o QR Code já informa."""
+
+    def __init__(self, dados):
+        super().__init__("Essa nota foi emitida com o caixa offline e a SEFAZ ainda não a recebeu "
+                         "(o mercado tem até 24 horas para enviar).")
+        self.dados = dados
+
+
+def dados_do_qr_offline(link):
+    """QR de contingência: chave|versão|ambiente|dia|valor|... → {chave, cnpj, data, total} ou None."""
+    link = validar_link(link)
+    chave = chave_do_link(link)
+    campos = link.split("p=", 1)[1].split("|")
+    if not chave or chave[34] != "9" or len(campos) < 5:
+        return None
+    try:
+        dia, total = int(campos[3]), round(float(campos[4].replace(",", ".")), 2)
+        data = pd.Timestamp(year=2000 + int(chave[2:4]), month=int(chave[4:6]), day=dia)
+    except (ValueError, TypeError):
+        return None
+    return {"chave": chave, "cnpj": chave[6:20], "data": data.strftime("%Y-%m-%d"), "total": total}
+
+
 def ler_cupom(link):
-    """Baixa e lê a nota; explica o caso da nota offline que a SEFAZ ainda não recebeu."""
+    """Baixa e lê a nota. Nota offline ainda não recebida pela SEFAZ → NotaPendente."""
     link = validar_link(link)
     try:
         return ler_nfce(baixar_xml(link))
     except ValueError:
-        if emitida_offline(link):
-            raise ValueError("Essa nota foi emitida em contingência (o caixa estava offline) e a SEFAZ "
-                             "ainda não a recebeu. O mercado tem até 24 horas para enviar — tente mais tarde.")
+        dados = dados_do_qr_offline(link)
+        if dados:
+            raise NotaPendente(dados)
         raise
+
+
+def marca_pendente(chave):
+    return f"NFC-e {chave} · itens pendentes"
+
+
+def linhas_pendentes(chave, despesas):
+    """Máscara das linhas lançadas só com o total, à espera dos itens."""
+    if not chave or despesas.empty or "observacao" not in despesas.columns:
+        return pd.Series(False, index=despesas.index)
+    return despesas["observacao"].astype(str).str.strip().eq(marca_pendente(chave))
 
 
 def baixar_xml(link, timeout=30):

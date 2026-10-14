@@ -14,7 +14,8 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
-from cupom_fiscal import (CATEGORIAS_CUPOM, ler_cupom, link_do_qr, sugerir_categorias,
+from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, ler_cupom, link_do_qr, sugerir_categorias,
+                          linhas_pendentes, marca_pendente,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
 from config import DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM
@@ -202,6 +203,10 @@ with tab_atual:
             try:
                 with st.spinner("Consultando a SEFAZ…"):
                     st.session_state["cupom_lido"] = ler_cupom(link_cupom)
+                st.session_state.pop("cupom_pendente", None)
+            except NotaPendente as e:
+                st.session_state.pop("cupom_lido", None)
+                st.session_state["cupom_pendente"] = e.dados
             except ValueError as e:
                 st.session_state.pop("cupom_lido", None)
                 mensagem_erro(str(e))
@@ -217,12 +222,20 @@ with tab_atual:
             st.markdown(
                 f"{data_cupom.strftime('%d/%m/%Y') if pd.notna(data_cupom) else '—'} · "
                 f"{len(cupom['itens'])} item(ns) · total **{formatar_moeda(cupom['total'])}**")
-            if ja_lancado(cupom["chave"], ler_csv(DESPESAS_FILE)):
+            despesas_atual = ler_csv(DESPESAS_FILE)
+            pend = linhas_pendentes(cupom["chave"], despesas_atual)
+            linha_pend = despesas_atual[pend].iloc[0] if pend.any() else None
+            if ja_lancado(cupom["chave"], despesas_atual):
                 mensagem_aviso("Esse cupom já foi lançado.")
             else:
+                if linha_pend is not None:
+                    st.info(f"Esse cupom já está na semana só com o total ({formatar_moeda(linha_pend['valor'])}). "
+                            "Ao lançar com os itens, essa linha é trocada pela divisão por categoria.")
                 estab_cupom = st.text_input(
                     "Estabelecimento:", key=f"cupom_estab_{cupom['chave']}",
-                    value=nome_lembrado(cupom["cnpj"], df_itens_hist) or cupom["estabelecimento"].title(),
+                    value=nome_lembrado(cupom["cnpj"], df_itens_hist)
+                          or (str(linha_pend["descricao"]) if linha_pend is not None else "")
+                          or cupom["estabelecimento"].title(),
                     help="Nome que aparece nos gastos. Fica lembrado para as próximas notas desse CNPJ.").strip()
                 itens = cupom["itens"].copy()
                 itens["categoria"] = sugerir_categorias(itens, df_itens_hist, cats_cupom)
@@ -248,15 +261,18 @@ with tab_atual:
                                    f"da nota ({formatar_moeda(cupom['total'])}). Confira antes de lançar.")
 
                 formas = ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"]
+                cartoes = ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"]
+                forma_padrao = str(linha_pend["forma_pagamento"]) if linha_pend is not None else cupom["forma_pagamento"]
+                cartao_padrao = str(linha_pend["banco"]) if linha_pend is not None else ""
                 cp1, cp2 = st.columns(2)
                 with cp1:
                     forma_cupom = st.selectbox(
                         "Forma de pagamento:", formas, key=f"cupom_forma_{cupom['chave']}",
-                        index=formas.index(cupom["forma_pagamento"]) if cupom["forma_pagamento"] in formas else None,
+                        index=formas.index(forma_padrao) if forma_padrao in formas else None,
                         placeholder="Escolha a forma de pagamento")
                 with cp2:
-                    cartao_cupom = st.selectbox("Cartão (somente para crédito):",
-                                                ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"],
+                    cartao_cupom = st.selectbox("Cartão (somente para crédito):", cartoes,
+                                                index=cartoes.index(cartao_padrao) if cartao_padrao in cartoes else 0,
                                                 key=f"cupom_cartao_{cupom['chave']}")
 
                 if st.button("💾 Lançar cupom", type="primary", use_container_width=True):
@@ -280,7 +296,15 @@ with tab_atual:
                                 "status": "Pago", "observacao": obs,
                                 "fonte": FONTE_SEMANAL, "criado_em": criado,
                             })
-                        n = salvar_despesas_novas(pd.DataFrame(linhas))
+                        if linha_pend is not None:
+                            # troca a linha só com o total (nota offline) pela divisão por categoria
+                            base_d = ler_csv(DESPESAS_FILE)
+                            base_d = base_d[~linhas_pendentes(cupom["chave"], base_d)]
+                            gravou = salvar_parquet("despesas", pd.concat([base_d, pd.DataFrame(linhas)],
+                                                                          ignore_index=True))
+                            n = len(linhas) if gravou else -1
+                        else:
+                            n = salvar_despesas_novas(pd.DataFrame(linhas))
                         if n < 0:
                             pass   # leitura falhou: a própria função já avisou
                         elif n < len(linhas):
@@ -310,6 +334,67 @@ with tab_atual:
                             st.session_state.pop("cupom_lido", None)
                             st.session_state["_limpar_cupom"] = True
                             st.rerun()
+
+        # ── Nota offline: a SEFAZ ainda não tem os itens → lança já só com o total ──
+        pendente = st.session_state.get("cupom_pendente")
+        if pendente and not cupom:
+            despesas_atual = ler_csv(DESPESAS_FILE)
+            data_p = pd.to_datetime(pendente["data"], errors="coerce")
+            if (linhas_pendentes(pendente["chave"], despesas_atual).any()
+                    or ja_lancado(pendente["chave"], despesas_atual)):
+                mensagem_aviso("Esse cupom já está lançado. Quando a SEFAZ receber a nota, leia o QR Code de novo "
+                               "para trocar o total pela divisão por categoria.")
+            else:
+                st.warning(f"A SEFAZ ainda não recebeu essa nota (o caixa do mercado estava offline). "
+                           f"Lance agora só com o total — **{formatar_moeda(pendente['total'])}** em "
+                           f"{data_p.strftime('%d/%m/%Y') if pd.notna(data_p) else '—'} — e, quando a nota chegar "
+                           "(até 24 h), leia o mesmo QR Code de novo para trocar pela divisão por categoria.")
+                estab_p = st.text_input(
+                    "Estabelecimento:", key=f"pend_estab_{pendente['chave']}", placeholder="ex: Recibom",
+                    value=nome_lembrado(pendente["cnpj"], ler_csv(ITENS_CUPOM_FILE)) or "").strip()
+                formas = ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"]
+                pp1, pp2, pp3 = st.columns(3)
+                with pp1:
+                    cat_p = st.selectbox(
+                        "Categoria:", CATEGORIAS_DESPESA, key=f"pend_cat_{pendente['chave']}",
+                        index=(CATEGORIAS_DESPESA.index("🛒 Supermercado")
+                               if "🛒 Supermercado" in CATEGORIAS_DESPESA else None),
+                        placeholder="Escolha a categoria")
+                with pp2:
+                    forma_p = st.selectbox("Forma de pagamento:", formas, index=None,
+                                           placeholder="Escolha a forma de pagamento",
+                                           key=f"pend_forma_{pendente['chave']}")
+                with pp3:
+                    cartao_p = st.selectbox("Cartão (somente para crédito):",
+                                            ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"],
+                                            key=f"pend_cartao_{pendente['chave']}")
+                if st.button(f"⚡ Lançar agora só com o total ({formatar_moeda(pendente['total'])})",
+                             type="primary", use_container_width=True):
+                    if not estab_p:
+                        mensagem_erro("Informe o estabelecimento.")
+                    elif not cat_p:
+                        mensagem_erro("Escolha a categoria.")
+                    elif not forma_p:
+                        mensagem_erro("Escolha a forma de pagamento.")
+                    elif pd.isna(data_p) or data_p.date() > HOJE:
+                        mensagem_erro("A data do cupom é inválida.")
+                    else:
+                        n = salvar_despesas_novas(pd.DataFrame([{
+                            "id": gerar_id(), "data": data_p.strftime("%Y-%m-%d"), "descricao": estab_p,
+                            "categoria": cat_p, "valor": pendente["total"], "forma_pagamento": forma_p,
+                            "banco": cartao_p if forma_p == "💳 Crédito" else "", "status": "Pago",
+                            "observacao": marca_pendente(pendente["chave"]),
+                            "fonte": FONTE_SEMANAL, "criado_em": agora(),
+                        }]))
+                        if n > 0:
+                            invalidar_cache("despesas")
+                            mensagem_sucesso(f"Lançado: {estab_p} · {formatar_moeda(pendente['total'])} "
+                                             "(itens pendentes)")
+                            st.session_state.pop("cupom_pendente", None)
+                            st.session_state["_limpar_cupom"] = True
+                            st.rerun()
+                        elif n == 0:
+                            mensagem_aviso("Esse gasto já parece estar lançado (mesma data, descrição e valor).")
 
     st.divider()
 

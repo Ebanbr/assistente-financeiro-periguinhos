@@ -112,7 +112,9 @@ with tab_atual:
             st.session_state.get("novo_gasto_descricao", ""),
             ler_csv(DESPESAS_FILE), CATEGORIAS_DESPESA,
         )
-        if categoria:
+        # só sugere se a categoria está vazia ou ainda é a sugestão anterior — nunca passa por cima da escolha do usuário
+        atual = st.session_state.get("novo_gasto_categoria")
+        if categoria and (not atual or atual == st.session_state.get("_categoria_local_sugerida")):
             st.session_state["novo_gasto_categoria"] = categoria
         st.session_state["_categoria_local_sugerida"] = categoria
 
@@ -127,7 +129,9 @@ with tab_atual:
                 g_data = st.date_input("Data:", value=semana_ref, max_value=HOJE,
                                        format="DD/MM/YYYY", help="Aceita lançamentos retroativos e os envia à semana correta.")
             with cg2:
-                g_cat = st.selectbox("Categoria:", CATEGORIAS_DESPESA, key="novo_gasto_categoria")
+                # sem padrão: antes caía em silêncio na 1ª da lista ("AABB") quando a escolha se perdia
+                g_cat = st.selectbox("Categoria:", CATEGORIAS_DESPESA, index=None,
+                                     placeholder="Escolha a categoria", key="novo_gasto_categoria")
                 g_pag = st.selectbox("Forma de pagamento:", ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"])
                 g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
             with cg3:
@@ -137,6 +141,8 @@ with tab_atual:
             if st.form_submit_button("💾 Lançar gasto", type="primary", use_container_width=True):
                 if not g_desc.strip():
                     mensagem_erro("Informe a descrição.")
+                elif not g_cat:
+                    mensagem_erro("Escolha a categoria.")
                 elif not g_valor or g_valor <= 0:
                     mensagem_erro("Informe um valor maior que zero.")
                 else:

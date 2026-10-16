@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
-from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, ler_cupom, link_do_qr, sugerir_categorias,
+from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, concluir_pendente, ler_cupom, link_do_qr, sugerir_categorias,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
@@ -189,16 +189,30 @@ with tab_atual:
                                 f"{esc(cp['estabelecimento'])} · {formatar_moeda(float(cp['valor'] or 0))}")
                 with ca2:
                     if st.button("🔄 Já chegou?", key=f"verif_cupom_{cp['chave']}", use_container_width=True):
+                        st.session_state.pop(f"sem_itens_{cp['chave']}", None)
                         try:
                             with st.spinner("Consultando a SEFAZ…"):
                                 st.session_state["cupom_lido"] = ler_cupom(cp["link"])
                             st.session_state.pop("cupom_pendente", None)
+                        except NotaSemItens:
+                            st.session_state[f"sem_itens_{cp['chave']}"] = True
                         except NotaPendente:
                             st.info("Ainda não chegou na SEFAZ. Tente mais tarde — o mercado tem até 24 h.")
                         except ValueError as e:
                             mensagem_erro(str(e))
                         except Exception:
                             mensagem_erro("Não consegui falar com a SEFAZ agora. Tente de novo em instantes.")
+                if st.session_state.get(f"sem_itens_{cp['chave']}"):
+                    st.info("A SEFAZ já recebeu e autorizou essa nota, mas não libera os itens pelo link do "
+                            "QR Code de caixa offline. O gasto continua lançado com o total. Você pode tentar "
+                            "de novo outro dia ou ficar só com o total.")
+                    if st.button("✔️ Ficar só com o total", key=f"so_total_{cp['chave']}"):
+                        base_d = concluir_pendente(cp["chave"], ler_csv(DESPESAS_FILE))
+                        if salvar_parquet("despesas", base_d):
+                            invalidar_cache("despesas")
+                            st.session_state.pop(f"sem_itens_{cp['chave']}", None)
+                            mensagem_sucesso(f"{cp['estabelecimento']} fica só com o total.")
+                            st.rerun()
             st.divider()
 
         st.caption("Tire uma foto do QR Code do cupom (ou cole o link). Cada item recebe uma categoria; "

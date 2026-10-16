@@ -160,6 +160,27 @@ def test_nota_offline_nao_recebida_vira_pendente(monkeypatch):
     assert not isinstance(erro.value, NotaPendente)
 
 
+def test_nota_offline_ja_autorizada_sem_itens_nao_fica_esperando(monkeypatch):
+    import cupom_fiscal
+    from cupom_fiscal import NotaPendente, NotaSemItens, ler_cupom
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml",
+                        lambda link: '<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><erro>100</erro>'
+                                     '<consulta>0</consulta></nfeProc>')
+    with pytest.raises(NotaSemItens) as erro:
+        ler_cupom(f"http://nfce.sefaz.pe.gov.br/nfce/consulta?p={OFFLINE}|2|1|14|56.61|BC41")
+    assert not isinstance(erro.value, NotaPendente) and erro.value.dados["total"] == 56.61
+
+
+def test_ficar_so_com_o_total_tira_da_espera_mas_continua_lancado():
+    from cupom_fiscal import concluir_pendente, cupons_aguardando, marca_pendente
+    despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), "outra"], "valor": [56.61, 10.0]})
+    novo = concluir_pendente(OFFLINE, despesas)
+    assert novo["observacao"].tolist() == [f"NFC-e {OFFLINE}", "outra"]
+    assert novo["valor"].tolist() == [56.61, 10.0]
+    assert cupons_aguardando(pd.DataFrame({"chave": [OFFLINE], "link": ["a"]}), novo).empty
+    assert ja_lancado(OFFLINE, novo)                 # não deixa lançar o mesmo cupom de novo
+
+
 def test_linha_so_com_total_e_reconhecida_e_nao_conta_como_lancado():
     from cupom_fiscal import linhas_pendentes, marca_pendente
     despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), f"NFC-e {CHAVE}", ""]})

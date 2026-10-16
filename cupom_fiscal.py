@@ -111,6 +111,20 @@ class NotaPendente(ValueError):
         self.dados = dados
 
 
+class NotaSemItens(ValueError):
+    """A SEFAZ já autorizou a nota (erro 100), mas o link do QR não devolve os itens."""
+
+    def __init__(self, dados):
+        super().__init__("A SEFAZ já recebeu e autorizou essa nota, mas não libera os itens pelo link "
+                         "do QR Code dela.")
+        self.dados = dados
+
+
+def _codigo_erro(xml_texto):
+    m = re.search(r"<erro>\s*(\d+)\s*</erro>", xml_texto or "")
+    return m.group(1) if m else None
+
+
 def dados_do_qr_offline(link):
     """QR de contingência: chave|versão|ambiente|dia|valor|... → {chave, cnpj, data, total} ou None."""
     link = validar_link(link)
@@ -128,15 +142,26 @@ def dados_do_qr_offline(link):
 
 
 def ler_cupom(link):
-    """Baixa e lê a nota. Nota offline ainda não recebida pela SEFAZ → NotaPendente."""
+    """Baixa e lê a nota. Nota offline ainda não recebida pela SEFAZ → NotaPendente;
+    já autorizada mas sem itens pelo link (erro 100) → NotaSemItens."""
     link = validar_link(link)
+    xml_texto = baixar_xml(link)
     try:
-        return ler_nfce(baixar_xml(link))
+        return ler_nfce(xml_texto)
     except ValueError:
         dados = dados_do_qr_offline(link)
+        if dados and _codigo_erro(xml_texto) == "100":
+            raise NotaSemItens(dados)
         if dados:
             raise NotaPendente(dados)
         raise
+
+
+def concluir_pendente(chave, despesas):
+    """Fica só com o total: a linha deixa de esperar os itens, mas continua marcada como do cupom."""
+    despesas = despesas.copy()
+    despesas.loc[linhas_pendentes(chave, despesas), "observacao"] = f"NFC-e {chave}"
+    return despesas
 
 
 def marca_pendente(chave):

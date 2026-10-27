@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 from config import DESPESAS_FILE, RECEITAS_FILE, MESES_PT
 from utils import esc, configurar_pagina, cabecalho_pagina, inicializar_dados, ler_csv, formatar_moeda
 from ui_theme import paleta_graficos, tema_atual
+from fatura_projection import despesas_da_analise
 
 configurar_pagina("Categorias", icone="🔎")
 inicializar_dados()
@@ -44,9 +45,9 @@ st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 # ── Dados ────────────────────────────────────────────────────
 df_d = ler_csv(DESPESAS_FILE)
 df_r = ler_csv(RECEITAS_FILE)
-# Macro: exclui os gastos semanais (ferramenta à parte)
+# Mesmo critério do dashboard: crédito do C6 lançado à mão sai quando a fatura dele é importada
 if not df_d.empty and "fonte" in df_d.columns:
-    df_d = df_d[df_d["fonte"].astype(str) != "Semanal"].copy()
+    df_d = despesas_da_analise(df_d, ler_csv("fechamentos_fatura"))
 
 # ── Filtros ──────────────────────────────────────────────────
 f1, f2, f3 = st.columns([1.2, 1, 1])

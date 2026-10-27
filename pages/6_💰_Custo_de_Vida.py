@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 from config import DESPESAS_FILE, RECEITAS_FILE, TIPOS_CATEGORIA_FILE, COLUNAS_TIPOS_CATEGORIA
 from utils import (esc, configurar_pagina, inicializar_dados, ler_csv, salvar_parquet, invalidar_cache,
                    formatar_moeda, mensagem_sucesso, mensagem_erro, gerar_id, agora)
+from fatura_projection import despesas_da_analise
 from ui_theme import paleta_graficos, tema_atual, estilizar_figura, eixo_reais, valor_curto
 from custo_vida import (FIXA, ESSENCIAL, CORTAVEL, FORA, SEM_TIPO, TIPOS, classificar, meses_da_janela,
                         gasto_mensal_por_tipo, media_por_categoria, custo_minimo)
@@ -44,10 +45,10 @@ if df_d.empty:
     st.info("Sem despesas lançadas ainda.")
     st.stop()
 
-# Mesmo critério do dashboard: os gastos semanais são ferramenta à parte (o crédito
-# reaparece na fatura importada do C6) e reembolsos do C6 não são renda.
+# Mesmo critério do dashboard: crédito do C6 lançado à mão sai quando a fatura dele é
+# importada (vale a linha do banco); reembolsos do C6 não são renda.
 if "fonte" in df_d.columns:
-    df_d = df_d[df_d["fonte"].astype(str) != "Semanal"].copy()
+    df_d = despesas_da_analise(df_d, ler_csv("fechamentos_fatura"))
 if not df_r.empty and "fonte" in df_r.columns:
     df_r = df_r[df_r["fonte"].astype(str) != "C6 Bank"].copy()
 

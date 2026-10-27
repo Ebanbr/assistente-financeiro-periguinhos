@@ -10,6 +10,10 @@ from datetime import datetime, date
 import uuid
 from pathlib import Path
 
+# Partes sem Streamlit (usadas também pela API do app do celular)
+from dados import (_parse_data_robusta, _normalizar_coluna_data, _normalizar_schema_tabela,  # noqa: F401
+                   gerar_id, agora)
+
 # ── DIRETÓRIO LOCAL (fallback sem GSheets) ───────────────────
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -74,60 +78,15 @@ def _gsheet_com_retry(fn, *args, tentativas=5, **kwargs):
             else:
                 raise
 
-def _parse_data_robusta(serie) -> pd.Series:
-    """Parser ÚNICO e canônico de datas — fonte de verdade do app inteiro.
-
-    Aceita:
-      • ISO  'YYYY-MM-DD' (opcional com hora) → tratado como NÃO ambíguo
-      • BR   'DD/MM/YYYY' / 'DD-MM-YYYY'      → dayfirst (padrão brasileiro)
-
-    Retorna pd.Series datetime64. Nunca usa MM/DD silenciosamente.
-    """
-    s = serie.astype(str).str.strip()
-    # descarta hora se vier ("2026-06-05 00:00:00" / "2026-06-05T...")
-    s_data = s.str.split(" ").str[0].str.split("T").str[0]
-    # ISO = começa com ano de 4 dígitos (aceita '-' ou '/'); pandas trata year-first
-    # sempre como AAAA-MM-DD, então não há ambiguidade de dayfirst aqui.
-    # Ausências não são ISO: a máscara precisa ser booleana para usar ~.
-    iso_mask = s_data.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}$", na=False)
-    iso_parsed = pd.to_datetime(s_data.where(iso_mask).str.replace("/", "-", regex=False),
-                                format="%Y-%m-%d", errors="coerce")
-    # Resto: formato brasileiro, dia primeiro
-    br_parsed  = pd.to_datetime(s.where(~iso_mask), dayfirst=True, errors="coerce")
-    return iso_parsed.fillna(br_parsed)
+# Impressão do conteúdo da aba no momento da leitura. A planilha tem outros escritores
+# (app do celular, sync do Notion): antes de sobrescrever a aba inteira, confere se ela
+# continua igual ao que foi lido — senão a gravação apagaria o que o outro gravou.
+_IMPRESSAO_LIDA: dict = {}
 
 
-def _normalizar_coluna_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Garante df['data_dt'] correto E df['data'] em ISO 'YYYY-MM-DD'.
-
-    Normalizar 'data' para ISO faz com que QUALQUER pd.to_datetime() posterior
-    (com ou sem dayfirst) leia a data corretamente — ISO é não ambíguo.
-    """
-    if "data" in df.columns:
-        dt = _parse_data_robusta(df["data"])
-        df["data_dt"] = dt
-        df["data"] = dt.dt.strftime("%Y-%m-%d").where(dt.notna(), df["data"])
-    return df
-
-
-def _normalizar_schema_tabela(df: pd.DataFrame, tabela: str) -> pd.DataFrame:
-    """Aplica migrações apenas nas tabelas às quais pertencem.
-
-    `cartao -> banco` é legado exclusivo de despesas/receitas. As tabelas de
-    configuração de fatura usam `cartao` de propósito.
-    """
-    df = df.copy()
-    if tabela in ("despesas", "receitas"):
-        if "cartao" in df.columns and "banco" not in df.columns:
-            df = df.rename(columns={"cartao": "banco"})
-    elif tabela in ("faturas_base", "fechamentos_fatura") and "banco" in df.columns:
-        if "cartao" not in df.columns:
-            df = df.rename(columns={"banco": "cartao"})
-        else:
-            vazio = df["cartao"].astype(str).str.strip().isin(["", "nan", "None"])
-            df.loc[vazio, "cartao"] = df.loc[vazio, "banco"]
-            df = df.drop(columns=["banco"])
-    return df
+def _impressao(valores) -> str:
+    import hashlib
+    return hashlib.sha256(repr(valores).encode("utf-8")).hexdigest()
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -135,6 +94,7 @@ def _ler_gsheet(tabela: str, _v: int = 0) -> pd.DataFrame:
     try:
         ws = _get_worksheet(tabela)
         all_values = _gsheet_com_retry(ws.get_all_values)
+        _IMPRESSAO_LIDA[tabela] = _impressao(all_values)
         if not all_values or len(all_values) < 2:
             return pd.DataFrame()
         header = all_values[0]
@@ -241,7 +201,15 @@ def _gravacao_bloqueada(tabela: str, df: pd.DataFrame, permitir_vazio: bool) -> 
 def _salvar_gsheet(tabela: str, df: pd.DataFrame) -> bool:
     try:
         ws = _get_worksheet(tabela)
+        lida = _IMPRESSAO_LIDA.get(tabela)
+        if lida is not None and _impressao(_gsheet_com_retry(ws.get_all_values)) != lida:
+            _ler_gsheet.clear()
+            _IMPRESSAO_LIDA.pop(tabela, None)
+            st.error(f"❌ A aba '{tabela}' mudou desde que esta tela leu (lançamento pelo app do celular "
+                     f"ou sync do Notion). Nada foi gravado para não apagar isso — recarregue e salve de novo.")
+            return False
         _ler_gsheet.clear()  # invalida cache após escrita
+        _IMPRESSAO_LIDA.pop(tabela, None)
 
         if df.empty:
             ws.clear()
@@ -339,12 +307,6 @@ def mensagem_erro(msg: str):
 def mensagem_aviso(msg: str):
     st.warning(f"⚠️ {msg}")
 
-def gerar_id() -> str:
-    # UUID completo — risco de colisão nulo (o encurtado de 8 chars tinha risco desnecessário)
-    return str(uuid.uuid4())
-
-def agora() -> str:
-    return datetime.now().isoformat()
 
 # ── LEITURA ──────────────────────────────────────────────────
 

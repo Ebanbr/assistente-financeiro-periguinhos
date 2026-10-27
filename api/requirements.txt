@@ -1,0 +1,8 @@
+# API do app do celular (sem versões fixas, como o requirements.txt do Streamlit)
+fastapi
+uvicorn
+pandas
+gspread
+google-auth
+requests
+toml

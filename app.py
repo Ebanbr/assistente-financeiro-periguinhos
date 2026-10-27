@@ -13,6 +13,7 @@ from config import APP_NOME, APP_EMOJI, DESPESAS_FILE, RECEITAS_FILE, MESES_PT, 
 from utils import (esc, ler_csv, salvar_parquet, formatar_moeda, ler_json, gerar_id,
                    listar_categorias, invalidar_cache, mensagem_sucesso, mensagem_erro)
 from auth import login_page, usuario_logado, logout
+from fatura_projection import despesas_da_analise
 from ui_theme import (aplicar_tema, paleta_graficos, tema_atual, eixo_reais, valor_curto,
                       cores_por_categoria, cor_outras)
 
@@ -60,12 +61,12 @@ for _df in (df_d_all, df_r):
     if not _df.empty and "valor" in _df.columns:
         _df["valor"] = pd.to_numeric(_df["valor"], errors="coerce").fillna(0)
 
-# Gastos semanais (fonte "Semanal") são uma ferramenta à parte — NÃO entram no
-# macro do dashboard (que reflete o Notion + faturas), só no tile "Esta semana".
+# Lançado à mão (fonte "Semanal", app ou página da semana) entra no macro, menos o crédito
+# do C6 já coberto por fatura importada (despesas_da_analise). O tile "Esta semana" usa todos.
 if not df_d_all.empty and "fonte" in df_d_all.columns:
     _mask_sem = df_d_all["fonte"].astype(str) == "Semanal"
     df_semanal = df_d_all[_mask_sem].copy()
-    df_d = df_d_all[~_mask_sem].copy()
+    df_d = despesas_da_analise(df_d_all, ler_csv("fechamentos_fatura"))
 else:
     df_semanal = pd.DataFrame()
     df_d = df_d_all

@@ -249,3 +249,61 @@ def test_resumo_da_semana_soma_por_categoria_do_maior_para_o_menor():
     assert r["lancamentos"].tolist() == [2, 2, 1, 1]
     assert r["pct"].tolist() == [68.2, 25.3, 4.5, 1.9]           # total R$ 220,00
     assert resumo_categorias(semana.iloc[0:0]).empty
+
+
+def test_analise_troca_credito_c6_pela_fatura_importada_e_mantem_pix():
+    from fatura_projection import despesas_da_analise
+    df = pd.DataFrame([
+        # fatura 10/2026 importada: última compra em 01/10
+        {"id": "f1", "data": "2026-10-07", "valor": 100.0, "fonte": "C6 Bank", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito", "data_compra": "01/10/2026", "observacao": ""},
+        {"id": "f2", "data": "2026-10-07", "valor": 50.0, "fonte": "C6 Bank", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito", "data_compra": "15/09/2026", "observacao": ""},
+        # lançado à mão, já veio na fatura → sai
+        {"id": "s1", "data": "2026-09-15", "valor": 50.0, "fonte": "Semanal", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito"},
+        # crédito legado sem cartão também é C6 BRU
+        {"id": "s2", "data": "2026-10-01", "valor": 100.0, "fonte": "Semanal", "banco": "",
+         "forma_pagamento": "💳 Crédito"},
+        # fatura aberta, ainda não importada → fica
+        {"id": "s3", "data": "2026-10-20", "valor": 30.0, "fonte": "Semanal", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito"},
+        # Pix e cartão sem fatura importada → sempre ficam
+        {"id": "s4", "data": "2026-09-10", "valor": 20.0, "fonte": "Semanal", "banco": "",
+         "forma_pagamento": "📱 PIX"},
+        {"id": "s5", "data": "2026-09-10", "valor": 40.0, "fonte": "Semanal", "banco": "C6 PRI",
+         "forma_pagamento": "💳 Crédito"},
+        {"id": "n1", "data": "2026-09-10", "valor": 900.0, "fonte": "Notion", "banco": "",
+         "forma_pagamento": "BB"},
+    ])
+    ficou = despesas_da_analise(df).set_index("id")
+    assert sorted(ficou.index) == ["f1", "f2", "n1", "s3", "s4", "s5"]
+    # a compra da fatura aberta conta no mês da fatura (11/2026), como a importada
+    assert ficou.loc["s3", "data"] == "2026-11-01"
+    assert ficou.loc["s4", "data"] == "2026-09-10"   # Pix fica na data dele
+
+
+def test_analise_usa_o_encerramento_para_achar_a_fatura_da_compra():
+    from fatura_projection import despesas_da_analise
+    df = pd.DataFrame([
+        {"id": "f1", "data": "2026-10-01", "valor": 100.0, "fonte": "C6 Bank", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito", "data_compra": "01/10/2026", "observacao": ""},
+        {"id": "s1", "data": "2026-10-30", "valor": 10.0, "fonte": "Semanal", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito"},
+        {"id": "s2", "data": "2026-11-03", "valor": 20.0, "fonte": "Semanal", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito"},
+    ])
+    # fatura 11/2026 encerrada em 31/10 (registro do mês seguinte, 12/2026) e ainda não importada
+    fech = pd.DataFrame([{"ano": 2026, "mes": 12, "cartao": "C6 BRU", "dia": 31, "encerrada_em": "2026-10-31"}])
+    ficou = despesas_da_analise(df, fech).set_index("id")
+    assert ficou.loc["s1", "data"] == "2026-11-01"
+    assert ficou.loc["s2", "data"] == "2026-12-01"
+
+
+def test_analise_sem_fatura_importada_mantem_todo_lancamento_manual():
+    from fatura_projection import despesas_da_analise
+    df = pd.DataFrame([
+        {"id": "s1", "data": "2026-10-20", "valor": 30.0, "fonte": "Semanal", "banco": "C6 BRU",
+         "forma_pagamento": "💳 Crédito"},
+    ])
+    assert despesas_da_analise(df)["id"].tolist() == ["s1"]

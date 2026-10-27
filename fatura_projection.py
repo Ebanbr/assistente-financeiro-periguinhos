@@ -339,3 +339,50 @@ def resumo_categorias(df):
     total = float(resumo["valor"].sum())
     resumo["pct"] = (resumo["valor"] / total * 100).round(1) if total else 0.0
     return resumo[["categoria", "valor", "pct", "lancamentos"]]
+
+
+def despesas_da_analise(df, fechamentos=None, fonte_semanal="Semanal"):
+    """Despesas que entram no dashboard e nas análises.
+
+    Lançado à mão (fonte Semanal, pelo app ou pela página da semana) entra sempre, menos o crédito
+    de um cartão cuja fatura é importada: essa compra conta só até a fatura dela chegar. Depois da
+    importação vale a linha do banco — compras até a última compra da fatura importada mais recente
+    saem, para não contar duas vezes. As que ficam vão para o mês da fatura delas (dia 1, como a
+    fatura importada), para o mês não somar duas faturas: a fatura é a primeira encerrada depois da
+    compra (``fechamentos``) ou, sem encerramento, a seguinte à última importada/encerrada.
+    """
+    if df is None or df.empty or "fonte" not in df.columns:
+        return df
+    df = df.copy()
+    fonte = df["fonte"].astype(str)
+    semanal = fonte.eq(fonte_semanal)
+    trocadas = pd.Series(False, index=df.index)
+    compra = pd.to_datetime(df.get("data"), errors="coerce").dt.date
+    banco = df.get("banco", pd.Series("", index=df.index)).astype(str).str.strip()
+    for cartao in sorted(set(banco[fonte.eq("C6 Bank")]) - {""}):
+        importados = meses_fatura_importados(df, cartao)
+        ultimo_fim = None
+        for ano, mes in importados:
+            ciclo = ciclo_fatura_importada(df, ano, mes, cartao)
+            if ciclo is not None and (ultimo_fim is None or ciclo[1] > ultimo_fim):
+                ultimo_fim = ciclo[1]
+        if ultimo_fim is None:
+            continue
+        credito = semanal & mascara_credito_cartao(df, cartao)
+        ate_fim = compra.apply(lambda x: pd.notna(x) and x <= ultimo_fim)
+        trocadas |= credito & ate_fim
+
+        encerradas = faturas_encerradas(fechamentos, cartao)
+        ultima = max(list(encerradas) + importados)
+        aberta = pd.Timestamp(year=ultima[0], month=ultima[1], day=1) + pd.DateOffset(months=1)
+
+        def _mes_fatura(x):
+            depois = [(fim, am) for am, fim in encerradas.items() if am > importados[0] and fim >= x]
+            ano, mes = min(depois)[1] if depois else (aberta.year, aberta.month)
+            return f"{int(ano):04d}-{int(mes):02d}-01"
+
+        mover = credito & ~ate_fim & compra.notna()
+        df.loc[mover, "data"] = compra[mover].apply(_mes_fatura)
+        if "data_dt" in df.columns:
+            df.loc[mover, "data_dt"] = pd.to_datetime(df.loc[mover, "data"])
+    return df[~trocadas].copy()

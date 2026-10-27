@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
+from leitor_qr import leitor_disponivel, ler_qr_ao_vivo
 from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_compras, concluir_pendente,
                           ler_cupom, link_do_qr, sugerir_categorias,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
@@ -215,17 +216,26 @@ with tab_atual:
                             st.rerun()
             st.divider()
 
-        st.caption("Tire uma foto do QR Code do cupom (ou cole o link). Cada item recebe uma categoria; "
-                   "o gasto entra na semana como uma linha por categoria.")
+        st.caption("Aponte a câmera para o QR Code do cupom (ou mande uma foto / cole o link). Cada item recebe "
+                   "uma categoria; o gasto entra na semana como uma linha por categoria.")
         n_foto = st.session_state.get("_cupom_foto_n", 0)
-        foto_qr = st.file_uploader("📷 Foto do QR Code", type=["jpg", "jpeg", "png", "webp"],
-                                   key=f"cupom_foto_{n_foto}",
-                                   help="No celular, toque aqui e escolha Câmera para fotografar o QR Code.")
-        foto_cam = None
-        if st.toggle("Usar a câmera aqui na página", key="cupom_usar_camera"):
-            foto_cam = st.camera_input("Aponte para o QR Code", key=f"cupom_camera_{n_foto}")
-        foto = foto_cam or foto_qr
         ler_agora = False
+        foto_cam = None
+        if leitor_disponivel():
+            # câmera ao vivo: lê sozinho assim que o QR aparece no quadro (como a câmera do celular)
+            if st.session_state.pop("_desligar_leitor", False):
+                st.session_state["cupom_usar_camera"] = False
+            if st.toggle("📷 Ler QR Code com a câmera", key="cupom_usar_camera"):
+                texto_vivo = ler_qr_ao_vivo(key=f"leitor_qr_{n_foto}")
+                if texto_vivo:
+                    st.session_state["cupom_link"] = texto_vivo
+                    st.session_state["_desligar_leitor"] = True
+                    ler_agora = True
+        elif st.toggle("Usar a câmera aqui na página", key="cupom_usar_camera"):
+            foto_cam = st.camera_input("Aponte para o QR Code", key=f"cupom_camera_{n_foto}")
+        foto_qr = st.file_uploader("🖼️ Ou mande uma foto do QR Code", type=["jpg", "jpeg", "png", "webp"],
+                                   key=f"cupom_foto_{n_foto}")
+        foto = foto_cam or foto_qr
         if foto is not None and st.session_state.get("_cupom_foto_lida") != foto.file_id:
             st.session_state["_cupom_foto_lida"] = foto.file_id
             texto_qr = link_do_qr(foto)

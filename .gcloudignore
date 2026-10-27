@@ -1,0 +1,11 @@
+# O que sobe para o Google Cloud Build: só o necessário para a API (nada de dados ou segredos)
+*
+!api/
+!api/**
+!config.py
+!dados.py
+!categorias.py
+!cupom_fiscal.py
+!expense_defaults.py
+!fatura_projection.py
+api/__pycache__/

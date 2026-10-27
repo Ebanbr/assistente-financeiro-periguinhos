@@ -25,3 +25,6 @@ backups_notion_migracao/
 tests/*-preview-profile/
 tests/*.png
 .pytest_cache/
+
+# APK do app (vai pelo WhatsApp, não pelo Git: ele leva o endereço da API)
+*.apk

@@ -69,3 +69,5 @@ p,li,span,label{color:var(--txt)}
 .weekly-entry{background:var(--panel);border-color:var(--line)}
 .weekly-entry-name{color:var(--txt-hi)}.weekly-entry-meta{color:var(--txt-dim)}
 .weekly-entry-value{color:var(--despesa)}
+.weekly-compra-itens{border-left-color:var(--line)}.weekly-sub{color:var(--txt-hi)}.weekly-sub .num{color:var(--despesa)}.weekly-item{color:var(--txt-dim)}
+.weekly-compra summary .weekly-entry-name::before{color:var(--txt-dim)}

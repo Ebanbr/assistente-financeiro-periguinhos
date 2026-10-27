@@ -276,3 +276,10 @@ hr{ border-color:#16223a !important; }
 @media(max-width:820px){.st-key-periguinhos_nav{display:none}}
 .weekly-entry{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;background:#0E1626;border:1px solid #1E2942;border-radius:10px;margin:4px 0;gap:12px}
 .weekly-entry-name{color:#EAF1FF}.weekly-entry-meta{color:#93A2C4;font-size:.8rem}.weekly-entry-value{color:#FF5C7A;font-weight:700;white-space:nowrap}
+.weekly-compra summary{cursor:pointer;list-style:none}.weekly-compra summary::-webkit-details-marker{display:none}
+.weekly-compra summary .weekly-entry-name::before{content:"▸ ";color:#93A2C4}
+.weekly-compra[open] summary .weekly-entry-name::before{content:"▾ "}
+.weekly-compra-itens{margin:0 0 6px 22px;border-left:2px solid #1E2942;padding-left:10px}
+.weekly-sub{display:flex;justify-content:space-between;gap:12px;padding:4px 4px;color:#C9D4EC;font-size:.88rem}
+.weekly-sub .num{color:#FF8FA3}
+.weekly-item{display:flex;justify-content:space-between;gap:12px;padding:2px 4px 2px 16px;color:#93A2C4;font-size:.8rem}

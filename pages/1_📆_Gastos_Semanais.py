@@ -14,7 +14,8 @@ import plotly.graph_objects as go
 from datetime import date, timedelta
 from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
-from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, concluir_pendente, ler_cupom, link_do_qr, sugerir_categorias,
+from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_compras, concluir_pendente,
+                          ler_cupom, link_do_qr, sugerir_categorias,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
@@ -203,9 +204,8 @@ with tab_atual:
                         except Exception:
                             mensagem_erro("Não consegui falar com a SEFAZ agora. Tente de novo em instantes.")
                 if st.session_state.get(f"sem_itens_{cp['chave']}"):
-                    st.info("A SEFAZ já recebeu e autorizou essa nota, mas não libera os itens pelo link do "
-                            "QR Code de caixa offline. O gasto continua lançado com o total. Você pode tentar "
-                            "de novo outro dia ou ficar só com o total.")
+                    st.info("A nota já chegou na SEFAZ, mas ela responde \"QR Code inválido\" para o QR desse "
+                            "cupom e não devolve os itens. O gasto continua lançado com o total.")
                     if st.button("✔️ Ficar só com o total", key=f"so_total_{cp['chave']}"):
                         base_d = concluir_pendente(cp["chave"], ler_csv(DESPESAS_FILE))
                         if salvar_parquet("despesas", base_d):
@@ -787,16 +787,48 @@ with tab_atual:
         st.info("Nenhum gasto lançado nesta semana ainda. Use **➕ Lançar gasto da semana** acima.")
     else:
         df_sem["_dia"] = df_sem["_dt"].dt.date
+        itens_semana = ler_csv(ITENS_CUPOM_FILE)
+        if "despesa_id" not in itens_semana.columns:
+            itens_semana = pd.DataFrame(columns=COLUNAS_ITENS_CUPOM)
         for dia in sorted(df_sem["_dia"].dropna().unique()):
             sub = df_sem[df_sem["_dia"] == dia]
             nome = DIAS_NOME[dia.weekday()]
             with st.expander(f"**{nome}, {dia.strftime('%d/%m')}** — {formatar_moeda(sub['valor'].sum())}", expanded=True):
-                for _, r in sub.iterrows():
+                for compra in agrupar_compras(sub):
+                    linhas_c = compra["linhas"]
+                    itens_c = (itens_semana[itens_semana["despesa_id"].astype(str).isin(linhas_c["id"].astype(str))]
+                               if compra["chave"] else itens_semana.iloc[0:0])
+                    if len(linhas_c) == 1 and itens_c.empty:
+                        r = linhas_c.iloc[0]
+                        st.markdown(
+                            f"<div class='weekly-entry'>"
+                            f"<span class='weekly-entry-name'>{esc(r['descricao'])}"
+                            f"<span class='weekly-entry-meta'> · {esc(r.get('categoria',''))} · {esc(r.get('forma_pagamento',''))}</span></span>"
+                            f"<span class='weekly-entry-value num'>{formatar_moeda(r['valor'])}</span></div>",
+                            unsafe_allow_html=True)
+                        continue
+                    # cupom fiscal: uma linha com o total da compra; tocando, abre as categorias e os produtos
+                    formas = " / ".join(dict.fromkeys(linhas_c["forma_pagamento"].astype(str)))
+                    detalhe = ""
+                    for _, r in linhas_c.sort_values("valor", ascending=False).iterrows():
+                        detalhe += (f"<div class='weekly-sub'><span>{esc(r.get('categoria',''))}</span>"
+                                    f"<span class='num'>{formatar_moeda(r['valor'])}</span></div>")
+                        for _, it in itens_c[itens_c["despesa_id"].astype(str) == str(r["id"])].iterrows():
+                            qtd = pd.to_numeric(it.get("quantidade"), errors="coerce")
+                            qtd_txt = (f"{qtd:g} {it.get('unidade', '')} · ".replace(".", ",")
+                                       if pd.notna(qtd) and qtd != 1 else "")
+                            detalhe += (f"<div class='weekly-item'><span>{esc(qtd_txt)}{esc(it.get('descricao', ''))}</span>"
+                                        f"<span class='num'>{formatar_moeda(float(pd.to_numeric(it.get('valor'), errors='coerce') or 0))}</span></div>")
+                    n_cat = len(linhas_c)
+                    n_itens = len(itens_c)
+                    resumo = (f"{n_cat} categoria{'s' if n_cat > 1 else ''}"
+                              + (f" · {n_itens} ite{'ns' if n_itens > 1 else 'm'}" if n_itens else ""))
                     st.markdown(
-                        f"<div class='weekly-entry'>"
-                        f"<span class='weekly-entry-name'>{esc(r['descricao'])}"
-                        f"<span class='weekly-entry-meta'> · {esc(r.get('categoria',''))} · {esc(r.get('forma_pagamento',''))}</span></span>"
-                        f"<span class='weekly-entry-value num'>{formatar_moeda(r['valor'])}</span></div>",
+                        f"<details class='weekly-compra'><summary class='weekly-entry'>"
+                        f"<span class='weekly-entry-name'>🧾 {esc(compra['nome'])}"
+                        f"<span class='weekly-entry-meta'> · {resumo} · {esc(formas)}</span></span>"
+                        f"<span class='weekly-entry-value num'>{formatar_moeda(compra['total'])}</span></summary>"
+                        f"<div class='weekly-compra-itens'>{detalhe}</div></details>",
                         unsafe_allow_html=True)
 
         # ── Editar / excluir ─────────────────────────────────────

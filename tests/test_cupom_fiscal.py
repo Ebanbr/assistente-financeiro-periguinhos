@@ -181,6 +181,22 @@ def test_ficar_so_com_o_total_tira_da_espera_mas_continua_lancado():
     assert ja_lancado(OFFLINE, novo)                 # não deixa lançar o mesmo cupom de novo
 
 
+def test_linhas_do_mesmo_cupom_viram_uma_compra_com_total():
+    from cupom_fiscal import agrupar_compras, marca_pendente
+    outro = CHAVE[:-1] + ("0" if CHAVE[-1] != "0" else "1")
+    gastos = pd.DataFrame({
+        "descricao": ["Mercado X · 🥤 Bebidas", "Padaria", "Mercado X · 🥬 Hortifruti", "Mercado X · 🥤 Bebidas",
+                      "Recibom"],
+        "observacao": [f"NFC-e {CHAVE}", "", f"NFC-e {CHAVE}", f"NFC-e {outro}", marca_pendente(OFFLINE)],
+        "valor": [10.0, 5.5, 2.25, 3.0, 56.61],
+    })
+    compras = agrupar_compras(gastos)
+    assert [(c["nome"], c["total"], len(c["linhas"])) for c in compras] == [
+        ("Mercado X", 12.25, 2), ("Padaria", 5.5, 1), ("Mercado X", 3.0, 1), ("Recibom", 56.61, 1)]
+    assert compras[0]["chave"] == CHAVE and compras[1]["chave"] is None and compras[3]["chave"] == OFFLINE
+    assert agrupar_compras(gastos.iloc[0:0]) == []
+
+
 def test_linha_so_com_total_e_reconhecida_e_nao_conta_como_lancado():
     from cupom_fiscal import linhas_pendentes, marca_pendente
     despesas = pd.DataFrame({"observacao": [marca_pendente(OFFLINE), f"NFC-e {CHAVE}", ""]})

@@ -112,11 +112,14 @@ class NotaPendente(ValueError):
 
 
 class NotaSemItens(ValueError):
-    """A SEFAZ já autorizou a nota (erro 100), mas o link do QR não devolve os itens."""
+    """A SEFAZ já tem a nota, mas responde erro 100 = "QR Code Inválido" (XSL da SEFAZ-PE) e não devolve os itens.
+
+    (236 = "Nota não se encontra na base": ainda não chegou.)
+    """
 
     def __init__(self, dados):
-        super().__init__("A SEFAZ já recebeu e autorizou essa nota, mas não libera os itens pelo link "
-                         "do QR Code dela.")
+        super().__init__("A nota já chegou na SEFAZ, mas ela diz que o QR Code desse cupom é inválido "
+                         "e não devolve os itens.")
         self.dados = dados
 
 
@@ -155,6 +158,32 @@ def ler_cupom(link):
         if dados:
             raise NotaPendente(dados)
         raise
+
+
+def chave_da_observacao(observacao):
+    m = re.search(r"NFC-e (\d{44})", str(observacao or ""))
+    return m.group(1) if m else None
+
+
+def agrupar_compras(gastos):
+    """Junta as linhas de um mesmo cupom numa compra só (na ordem em que aparecem).
+
+    Devolve [{chave, nome, total, linhas}]; gasto avulso vira uma compra de uma linha (chave None).
+    """
+    compras, por_chave = [], {}
+    for idx, linha in gastos.iterrows():
+        chave = chave_da_observacao(linha.get("observacao"))
+        if chave and chave in por_chave:
+            por_chave[chave]["_idx"].append(idx)
+            continue
+        compra = {"chave": chave, "nome": str(linha.get("descricao", "")).split(" · ")[0].strip(), "_idx": [idx]}
+        compras.append(compra)
+        if chave:
+            por_chave[chave] = compra
+    for compra in compras:
+        compra["linhas"] = gastos.loc[compra.pop("_idx")]
+        compra["total"] = round(float(pd.to_numeric(compra["linhas"]["valor"], errors="coerce").fillna(0).sum()), 2)
+    return compras
 
 
 def concluir_pendente(chave, despesas):

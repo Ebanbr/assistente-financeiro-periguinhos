@@ -1,14 +1,14 @@
 """Leitor de QR Code ao vivo: abre a câmera traseira no navegador e devolve o texto assim que o QR aparece.
 
 Usa st.components.v2 (Streamlit >= 1.51). No Chrome do Android o reconhecimento é o nativo do navegador
-(BarcodeDetector); onde ele não existe (ex.: Chrome no Windows), carrega o jsQR do CDN.
+(BarcodeDetector) e, junto, o jsQR do CDN no recorte do quadro; pede foco contínuo e zoom 2x quando dá.
 """
 import streamlit as st
 
 _CSS = """
 .qr-box{position:relative;width:100%;max-width:520px;margin:0 auto}
-.qr-box video{width:100%;border-radius:12px;background:#000;display:block}
-.qr-mira{position:absolute;inset:18%;border:3px solid rgba(255,255,255,.85);border-radius:14px;
+.qr-box video{width:100%;border-radius:12px;background:#000;display:block;cursor:pointer}
+.qr-mira{position:absolute;inset:10%;border:3px solid rgba(255,255,255,.85);border-radius:14px;
   box-shadow:0 0 0 999px rgba(0,0,0,.25);pointer-events:none}
 .qr-status{font:14px/1.4 sans-serif;color:var(--st-text-color, #EAF1FF);text-align:center;margin:8px 0 2px}
 """
@@ -23,7 +23,7 @@ export default function (component) {
   const { parentElement, setTriggerValue } = component;
   const video = parentElement.querySelector("video");
   const status = parentElement.querySelector(".qr-status");
-  let stream = null, parado = false, timer = null;
+  let stream = null, track = null, parado = false, timer = null, quadros = 0;
 
   const parar = () => {
     parado = true;
@@ -47,6 +47,36 @@ export default function (component) {
     setTriggerValue("qr", texto);
   };
 
+  // foco contínuo e um pouco de zoom: dá para segurar mais longe, onde a câmera consegue focar
+  const ajustarCamera = async () => {
+    if (!track || !track.getCapabilities) return "";
+    const caps = track.getCapabilities();
+    const extra = [];
+    try {
+      if (caps.focusMode && caps.focusMode.includes("continuous")) {
+        await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+        extra.push("foco auto");
+      }
+    } catch (e) {}
+    try {
+      if (caps.zoom && caps.zoom.max >= 1.5) {
+        const z = Math.min(caps.zoom.max, Math.max(caps.zoom.min || 1, 2));
+        await track.applyConstraints({ advanced: [{ zoom: z }] });
+        extra.push("zoom " + z + "x");
+      }
+    } catch (e) {}
+    return extra.join(", ");
+  };
+
+  video.addEventListener("click", async () => {  // tocar no vídeo = focar de novo
+    if (!track || !track.getCapabilities) return;
+    const modos = track.getCapabilities().focusMode || [];
+    try {
+      if (modos.includes("single-shot")) await track.applyConstraints({ advanced: [{ focusMode: "single-shot" }] });
+      if (modos.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+    } catch (e) {}
+  });
+
   (async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       status.textContent = "Este navegador não libera a câmera aqui. Use a foto ou cole o link.";
@@ -54,7 +84,7 @@ export default function (component) {
     }
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: { facingMode: { ideal: "environment" }, width: { ideal: 2560 }, height: { ideal: 1440 } },
         audio: false,
       });
     } catch (e) {
@@ -62,48 +92,63 @@ export default function (component) {
       return;
     }
     if (parado) { parar(); return; }
+    track = stream.getVideoTracks()[0];
     video.srcObject = stream;
     await video.play().catch(() => {});
-    status.textContent = "Aponte para o QR Code do cupom";
+    const ajustes = await ajustarCamera();
 
-    let detectar = null;
+    // leitor nativo do navegador (Chrome Android) no quadro inteiro
+    let nativo = null;
     if ("BarcodeDetector" in window) {
       try {
         const formatos = await window.BarcodeDetector.getSupportedFormats();
         if (formatos.includes("qr_code")) {
           const det = new window.BarcodeDetector({ formats: ["qr_code"] });
-          detectar = async () => {
+          nativo = async () => {
             const achados = await det.detect(video);
             return achados.length ? achados[0].rawValue : null;
           };
         }
-      } catch (e) { detectar = null; }
+      } catch (e) { nativo = null; }
     }
-    if (!detectar) {
-      try {
-        const jsQR = await carregarJsQR();
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        detectar = async () => {
-          const w = video.videoWidth, h = video.videoHeight;
-          if (!w || !h) return null;
-          const escala = Math.min(1, 1280 / Math.max(w, h));
-          canvas.width = Math.round(w * escala); canvas.height = Math.round(h * escala);
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const r = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
-          return r ? r.data : null;
-        };
-      } catch (e) {
-        status.textContent = "Não consegui carregar o leitor de QR. Use a foto ou cole o link.";
-        return;
-      }
+    // jsQR no recorte do quadro branco (o QR ocupa mais pixels ali)
+    let reserva = null;
+    try {
+      const jsQR = await carregarJsQR();
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      reserva = async () => {
+        const w = video.videoWidth, h = video.videoHeight;
+        if (!w || !h) return null;
+        const lado = Math.round(Math.min(w, h) * 0.8);
+        const sx = Math.round((w - lado) / 2), sy = Math.round((h - lado) / 2);
+        const alvo = Math.min(lado, 1000);
+        canvas.width = alvo; canvas.height = alvo;
+        ctx.drawImage(video, sx, sy, lado, lado, 0, 0, alvo, alvo);
+        const img = ctx.getImageData(0, 0, alvo, alvo);
+        const r = jsQR(img.data, alvo, alvo, { inversionAttempts: "attemptBoth" });
+        return r ? r.data : null;
+      };
+    } catch (e) { reserva = null; }
+
+    if (!nativo && !reserva) {
+      status.textContent = "Não consegui carregar o leitor de QR. Use a foto ou cole o link.";
+      return;
     }
+    const motores = [nativo && "nativo", reserva && "jsQR"].filter(Boolean).join(" + ");
+    const info = () => `Aponte para o QR Code · toque no vídeo para focar` +
+      ` (${motores} · ${video.videoWidth}×${video.videoHeight}${ajustes ? " · " + ajustes : ""} · ${quadros} quadros)`;
+    status.textContent = info();
 
     const ciclo = async () => {
       if (parado) return;
-      try { achou(await detectar()); } catch (e) { /* quadro ainda sem imagem */ }
-      if (!parado) timer = setTimeout(ciclo, 200);
+      quadros += 1;
+      try { if (nativo) achou(await nativo()); } catch (e) {}
+      try { if (!parado && reserva) achou(await reserva()); } catch (e) {}
+      if (!parado) {
+        if (quadros % 5 === 0) status.textContent = info();
+        timer = setTimeout(ciclo, 150);
+      }
     };
     ciclo();
   })();

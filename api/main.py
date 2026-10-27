@@ -103,6 +103,7 @@ def lancar(gasto: Gasto, usuario: str = Depends(usuario_atual)):
 
 
 @app.patch("/gastos/{id_gasto}")
+@app.post("/gastos/{id_gasto}")   # o HttpURLConnection do Android não faz PATCH
 def editar(id_gasto: str, gasto: Gasto, usuario: str = Depends(usuario_atual)):
     return _executar(servico.editar_gasto, planilha, id_gasto, gasto.model_dump())
 

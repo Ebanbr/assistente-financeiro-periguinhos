@@ -292,7 +292,7 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
     except NotaSemItens as e:
         d = e.dados
         return {"status": "sem_itens", "mensagem": str(e), "chave": d["chave"], "data": d["data"],
-                "total": d["total"], "ja_lancado": ja_lancado(d["chave"], despesas)}
+                "total": d["total"], "ja_lancado": bool(ja_lancado(d["chave"], despesas))}
     except ValueError as e:
         raise ErroDeUso(str(e))
 
@@ -307,7 +307,7 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
         "estabelecimento": nome_lembrado(cupom["cnpj"], hist) or cupom["estabelecimento"].title(),
         "forma_pagamento": (_texto(pend["forma_pagamento"]) if pend is not None else cupom["forma_pagamento"]),
         "banco": _texto(pend["banco"]) if pend is not None else "",
-        "ja_lancado": ja_lancado(cupom["chave"], despesas),
+        "ja_lancado": bool(ja_lancado(cupom["chave"], despesas)),
         "substitui_total": pend is not None,
         "itens": [{"item": int(r.item), "descricao": r.descricao, "quantidade": float(r.quantidade),
                    "unidade": r.unidade, "valor": float(r.valor), "categoria": r.categoria}

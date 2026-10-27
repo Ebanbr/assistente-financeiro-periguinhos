@@ -18,14 +18,26 @@ RAIZ = Path(__file__).resolve().parent.parent
 _CACHE_SEGUNDOS = 20
 
 
-def _segredos():
-    """GCP_SERVICE_ACCOUNT (JSON) e SPREADSHEET_ID do ambiente; no PC, do secrets.toml."""
+_ESCOPO = ["https://www.googleapis.com/auth/spreadsheets"]
+
+
+def _credenciais():
+    """(credenciais, id da planilha).
+
+    No Cloud Run basta SPREADSHEET_ID: o serviço roda como a própria conta de serviço que já
+    tem acesso à planilha (sem chave JSON guardada). GCP_SERVICE_ACCOUNT (JSON) também vale;
+    no PC, vem do secrets.toml.
+    """
+    from google.oauth2.service_account import Credentials
     conta, planilha = os.environ.get("GCP_SERVICE_ACCOUNT"), os.environ.get("SPREADSHEET_ID")
-    if conta and planilha:
-        return json.loads(conta), planilha
+    if planilha and conta:
+        return Credentials.from_service_account_info(json.loads(conta), scopes=_ESCOPO), planilha
+    if planilha:
+        import google.auth
+        return google.auth.default(scopes=_ESCOPO)[0], planilha
     import toml
     s = toml.load(RAIZ / ".streamlit" / "secrets.toml")
-    return dict(s["gcp_service_account"]), s["SPREADSHEET_ID"]
+    return Credentials.from_service_account_info(dict(s["gcp_service_account"]), scopes=_ESCOPO), s["SPREADSHEET_ID"]
 
 
 def _com_retry(fn, *args, tentativas=5, **kwargs):
@@ -49,10 +61,7 @@ class Planilha:
     def _doc(self):
         if self._planilha is None:
             import gspread
-            from google.oauth2.service_account import Credentials
-            conta, planilha_id = _segredos()
-            creds = Credentials.from_service_account_info(
-                conta, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+            creds, planilha_id = _credenciais()
             self._planilha = gspread.authorize(creds).open_by_key(planilha_id)
         return self._planilha
 

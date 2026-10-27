@@ -1,4 +1,5 @@
 """API do app do celular: regras com uma planilha em memória (nada vai ao Google Sheets)."""
+import json
 from datetime import date, timedelta
 
 import pandas as pd
@@ -116,6 +117,7 @@ def test_editar_e_excluir_so_mexem_no_que_foi_lancado_a_mao():
 def test_cupom_lido_e_lancado_por_categoria_com_itens():
     p = PlanilhaFalsa(despesas=[_gasto()])
     lido = servico.ler_cupom_qr(p, LINK, leitor=lambda link: ler_nfce(XML))
+    json.dumps(lido)   # a resposta precisa virar JSON (nada de tipos do numpy)
     assert lido["status"] == "ok" and lido["total"] == 20.62 and len(lido["itens"]) == 3
     assert {i["categoria"] for i in lido["itens"]} == {"🥬 Hortifruti", "🧽 Limpeza"}
     r = servico.lancar_cupom(p, {"chave": CHAVE, "estabelecimento": "Mercado Exemplo",
@@ -125,6 +127,7 @@ def test_cupom_lido_e_lancado_por_categoria_com_itens():
     assert sorted(l["categoria"] for l in linhas) == ["🛒 Supermercado", "🥬 Hortifruti", "🧽 Limpeza"]
     assert len(p.abas["itens_cupom"]) == 3
     sem = servico.semana(p, date(2026, 10, 10))
+    json.dumps(sem)
     compra = sem["dias"][0]["compras"][0]
     assert compra["cupom"] and compra["total"] == 20.62 and sum(len(c["itens"]) for c in compra["categorias"]) == 3
     with pytest.raises(servico.Duplicado):
@@ -139,6 +142,7 @@ def test_nota_offline_lanca_total_e_depois_troca_pela_divisao():
         raise NotaPendente({"chave": CHAVE, "cnpj": "00000000000191", "data": "2026-10-10", "total": 20.62,
                             "link": link})
     lido = servico.ler_cupom_qr(p, LINK, leitor=pendente)
+    json.dumps(lido)
     assert lido["status"] == "pendente" and not lido["ja_lancado"]
     servico.lancar_cupom_so_total(
         p, {"link": LINK, "estabelecimento": "Recibom", "forma_pagamento": "💳 Crédito", "banco": "C6 BRU"}, "Pixi",
@@ -159,7 +163,9 @@ def test_qr_sem_itens_fica_so_com_o_total():
 
     def sem_itens(link):
         raise NotaSemItens({"chave": OFFLINE, "cnpj": "1", "data": "2026-10-14", "total": 56.61, "link": link})
-    assert servico.ler_cupom_qr(p, LINK_OFFLINE, leitor=sem_itens)["status"] == "sem_itens"
+    lido = servico.ler_cupom_qr(p, LINK_OFFLINE, leitor=sem_itens)
+    json.dumps(lido)
+    assert lido["status"] == "sem_itens"
     assert servico.ficar_so_com_total(p, OFFLINE) == 1
     assert p.abas["despesas"][0]["observacao"] == f"NFC-e {OFFLINE}"
 

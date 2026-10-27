@@ -29,7 +29,7 @@ python -m pytest -q
 ```
 
 - `requirements.txt` é **unpinned** de propósito. **NÃO fixar versões com `==`** — pins quebraram o deploy do Streamlit Cloud (sem wheel compatível). Lição aprendida.
-- Testes: `tests/test_core.py`, `tests/test_expense_defaults.py`, `tests/test_ui_theme.py`, `tests/test_notion_sync.py`, `tests/test_cupom_fiscal.py` (XML fictício — repo é público, nunca commitar cupom real), `tests/test_categorias.py`, `tests/test_custo_vida.py`.
+- Testes: `tests/test_core.py`, `tests/test_expense_defaults.py`, `tests/test_ui_theme.py`, `tests/test_notion_sync.py`, `tests/test_cupom_fiscal.py` (XML fictício — repo é público, nunca commitar cupom real), `tests/test_categorias.py`, `tests/test_custo_vida.py`, `tests/test_api.py` (API do app com planilha em memória).
 - Rodar a página sem login para conferir: `streamlit.testing.v1.AppTest.from_file("app.py")` + `session_state` `logado/usuario/_login_ts` + `switch_page(...)` (lê o Sheets de produção — só leitura, nunca clicar em botões que gravam).
 
 ---
@@ -49,16 +49,17 @@ python -m pytest -q
 | `notion_sync.py` | Sincroniza lançamentos direto da API do Notion. |
 | `activity_log.py` | Log de atividade. |
 | `cupom_fiscal.py` | NFC-e pelo link do QR Code (só SEFAZ-PE): baixa o XML, lê itens, sugere categoria (item já classificado > NCM > 🛒 Supermercado), agrupa por categoria. |
+| `dados.py` | Regras de dados **sem Streamlit** (parser de data, esquema das abas, `gerar_id`, `agora`); o `utils` reexporta e a API usa. |
 | `leitor_qr.py` | Câmera **ao vivo** para o QR do cupom (`st.components.v2`, Streamlit ≥ 1.51): `BarcodeDetector` nativo do navegador (Chrome Android) ou jsQR do CDN como reserva; devolve o texto por trigger. Sem v2 (ex.: Streamlit 1.50 local) a página cai na `st.camera_input` antiga. |
 | `style.css` / `style-light.css` | Skin do tema escuro / complemento do claro. |
 
 ### Páginas (`pages/`)
 1. `1_📆_Gastos_Semanais.py` — gasto da semana + fatura estimada do mês + parcelas comprometidas + **editor da semana atual** (inline) + **histórico de semanas editável** (via `aplicar_edicoes_semanais`). São dois editores com propósitos diferentes (atual vs histórico), não duplicação.
-2. `2_🔎_Categorias.py` — explorador: ranking de categorias, drill-down (evolução mensal, estabelecimentos, tabela completa). Exclui `fonte == "Semanal"` do macro.
+2. `2_🔎_Categorias.py` — explorador: ranking de categorias, drill-down (evolução mensal, estabelecimentos, tabela completa). Usa `despesas_da_analise` (mesma regra do dashboard).
 3. `3_🌴_Projeto_Ferias.py` — meta de viagem.
 4. `4_👴👵_Aposentadoria.py` — projeção de futuro.
 5. `5_⚙️_Configuracoes.py` — import C6 (zip AES), sync Notion, mapeamentos/regras.
-6. `6_💰_Custo_de_Vida.py` — custo mínimo para viver = média mensal de Fixas + Variáveis essenciais (lógica pura em `custo_vida.py`). Tipos: Fixa / Variável essencial / Variável cortável / Fora da conta; classificação aprovada pelo Bruno em `CLASSIFICACAO_PADRAO`, ajustes salvos na aba `tipos_categoria`. Exclui `fonte=Semanal` e receitas C6 (reembolsos); janela começa na 1ª fatura C6. Fora da conta (decisão do Bruno): 💳 Cartões (fatura importada é que vale), 💸 Pix Avulso (ele vai analisar), 🐷 Poupança Kids, ajuda à família (Mãe/Pai/Sandra).
+6. `6_💰_Custo_de_Vida.py` — custo mínimo para viver = média mensal de Fixas + Variáveis essenciais (lógica pura em `custo_vida.py`). Tipos: Fixa / Variável essencial / Variável cortável / Fora da conta; classificação aprovada pelo Bruno em `CLASSIFICACAO_PADRAO`, ajustes salvos na aba `tipos_categoria`. Usa `despesas_da_analise` e exclui receitas C6 (reembolsos); janela começa na 1ª fatura C6. Fora da conta (decisão do Bruno): 💳 Cartões (fatura importada é que vale), 💸 Pix Avulso (ele vai analisar), 🐷 Poupança Kids, ajuda à família (Mãe/Pai/Sandra).
 
 ### Tabelas no Google Sheets
 `despesas`, `receitas`, `cartoes`, `lancamentos`, `metas`, `mapeamentos` + (adicionadas pelo CODEX) `faturas_base`, `fechamentos_fatura`, `limites_semanais` + `itens_cupom` (um item de cupom fiscal por linha; `despesa_id` aponta a linha agrupada em `despesas`).
@@ -105,7 +106,7 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
   - Categorias de item (`CATEGORIAS_CUPOM`): 🥬 Hortifruti, 🥩 Carnes e Peixes, 🧀 Frios e Laticínios, 🥖 Padaria, 🥫 Mercearia, 🥤 Bebidas, 🧽 Limpeza, 🧴 Higiene e Beleza, 🐾 Pets, 💊 Saúde - Farmácia, ⛽Combustível, 🛒 Supermercado. Bebidas alcoólicas separadas = ideia oferecida, sem resposta. NCM 2105 (sorvete/picolé) cai em 🥫 Mercearia pelo prefixo "21" — ofereci mover (🥤 Bebidas ou 🍦 Sorvetes), sem resposta.
   - **Semana atual (27/10):** cada cupom aparece como **uma linha com o total da compra** (`agrupar_compras`, agrupa pela chave em `observacao`); tocando (`<details>`), abre categorias e, dentro delas, os produtos de `itens_cupom` (pela `despesa_id`). Pedido do Bruno: ver o total primeiro e o detalhe depois.
   - **Histórico de semanas (27/10):** semana encerrada (`_fim < HOJE`) abre com resumo por categoria (`fatura_projection.resumo_categorias`: valor, %, barra). Título do expander escapa `$` (dois "R$" viravam fórmula). Editor do histórico aceita valor negativo (estorno), só recusa zero.
-  - A divisão só aparece na parte semanal: dashboard e Custo de vida ignoram `fonte=Semanal` (o crédito volta como 1 linha na fatura do C6).
+  - Depois que a fatura do C6 é importada, a compra volta a ser 1 linha (a do banco); antes disso o dashboard mostra a divisão do cupom (regra na seção 6.0).
 - **Deploy no Streamlit Cloud:** push que muda só código **não reinicia o processo** → módulo auxiliar fica velho na memória e a página dá `ImportError`. Depois de mexer em `cupom_fiscal.py`/outros módulos, fazer **Reboot** (share.streamlit.io → ⋮ do app → Reboot). Push que muda `requirements.txt` reinstala e reinicia sozinho. Cloud roda Python 3.14 e versões novas (requirements sem pin). O Bruno instalou o app como PWA no Galaxy S25.
 
 - **Emojis nas categorias (2026-10-14):** `categorias.py` (`NOMES_COM_EMOJI`, `com_emoji`) dá emoji às categorias que vinham cruas (Padaria → 🥖 Padaria etc., por parte em "Pix Avulso, AABB"). Aplicado no sync do Notion (`linhas_do_notion`) para não voltar o nome cru, e renomeado uma vez na planilha (despesas, receitas, mapeamentos; backup em `data/backup_emojis_2026-10-14/`). Internet/Streaming/Saúde foram juntadas com as que já tinham emoji. Nova categoria crua no Notion → acrescentar em `NOMES_COM_EMOJI`.
@@ -125,6 +126,15 @@ Colunas canônicas em `config.py` (`COLUNAS_DESPESAS`, etc.). `fonte` ∈ {`Manu
 - **Não recategorizar em massa por conta própria.** Já houve "cancela" por overreach (mover restaurantes/criar 241 regras sem pedir). Categorias são decisão do Bruno — ele dirige, eu executo o que for pedido.
 
 ---
+
+## 6.0 App do celular (Android) + API — desde 2026-10-27
+
+Decisão do Bruno: **tudo da página 📆 Gastos Semanais vai para um app Android** (APK só para ele e a Pri, sem Play Store); dashboard e análises ficam no Streamlit; o import da fatura C6 continua no PC. A Pri continua lançando as contas da casa no Notion.
+
+- **Regra do dashboard (aprovada):** lançado à mão (`fonte=Semanal`, app ou página) **entra** no dashboard, Categorias e Custo de vida (`fatura_projection.despesas_da_analise`). Exceção: crédito de cartão com fatura importada (hoje só C6 BRU; crédito sem cartão = C6 BRU) conta **até a fatura chegar** — compras até a última compra da fatura importada mais recente saem (vale a linha do banco). As que ficam vão para o **mês da fatura** delas (dia 1, como a importada): a 1ª encerrada depois da compra (`fechamentos_fatura`) ou a seguinte à última importada/encerrada. Para ver a fatura aberta em tempo real, filtrar o mês dela (o gráfico de fluxo só vai até o mês atual).
+- **Trava de escrita concorrente:** o Streamlit regrava a aba inteira; `utils._salvar_gsheet` compara a impressão (hash) da aba com a da leitura e **recusa** se mudou (app/sync gravaram no meio), limpando o cache. A API nunca regrava a aba: `append_rows` / atualiza ou apaga só a linha pelo `id`.
+- **API** (`api/`, FastAPI): `main.py` (rotas), `servico.py` (regras: semana, lançar/editar/excluir gasto, cupom com nota offline — mesmas da página 1), `planilha.py` (gspread linha a linha, cache 20 s), `acesso.py` (login com as senhas do `[usuarios]`, token HMAC de 90 dias, 5 tentativas + 5 min). Grava `lancado_por` (coluna nova em `despesas`). Fuso America/Recife. Rodar local: `uvicorn api.main:app --port 8080`. Deploy: `api/Dockerfile` no **Cloud Run** do projeto Google da planilha, rodando como a conta de serviço da planilha (só `SPREADSHEET_ID` no ambiente) + `APP_USUARIOS` (JSON) e `API_SEGREDO`.
+- **App** (`android/`, Kotlin + Compose): telas Login / Semana (total, limite, cupons esperando a SEFAZ, compras por dia com categorias e produtos, resumo) / Gasto (categoria lembrada) / Cupom. QR pelo leitor do Google Play Services (`play-services-code-scanner`). Compilar no PC: `JAVA_HOME` = `C:\Program Files\Android\Android Studio\jbr`, `cd android && ./gradlew assembleRelease -PapiUrl=https://…`. **Assinatura fixa** em `C:\Users\bpcha\.periguinhos\` (`periguinhos.jks` + `keystore.properties`, fora do Git) — perder = desinstalar/reinstalar o app. Teste no emulador: servidor `http://10.0.2.2:8080` (única exceção de HTTP).
 
 ## 6.1 Sincronização automática Notion → Sheets
 

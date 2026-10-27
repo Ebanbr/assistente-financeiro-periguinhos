@@ -1,0 +1,7 @@
+.gradle/
+build/
+local.properties
+# assinatura do APK: senha e chave ficam só no PC
+keystore.properties
+*.jks
+*.keystore

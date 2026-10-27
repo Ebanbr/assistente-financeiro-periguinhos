@@ -235,3 +235,17 @@ def test_migracao_cartao_banco_respeita_tipo_da_tabela():
     )
     assert list(base.columns) == ["cartao"]
     assert base["cartao"].tolist() == ["C6 BRU", "C6 PRI"]
+
+
+def test_resumo_da_semana_soma_por_categoria_do_maior_para_o_menor():
+    from fatura_projection import resumo_categorias
+    semana = pd.DataFrame({
+        "categoria": ["🛒 Supermercado", "🥖 Padaria", "🛒 Supermercado", "🛍️ Compras Online", "🛍️ Compras Online", ""],
+        "valor": [100.0, 10.0, 50.0, 155.72, -99.99, 4.27],
+    })
+    r = resumo_categorias(semana)
+    assert r["categoria"].tolist() == ["🛒 Supermercado", "🛍️ Compras Online", "🥖 Padaria", "Sem categoria"]
+    assert r["valor"].tolist() == [150.0, 55.73, 10.0, 4.27]          # estorno abate da categoria
+    assert r["lancamentos"].tolist() == [2, 2, 1, 1]
+    assert r["pct"].tolist() == [68.2, 25.3, 4.5, 1.9]           # total R$ 220,00
+    assert resumo_categorias(semana.iloc[0:0]).empty

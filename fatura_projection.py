@@ -322,3 +322,20 @@ def aplicar_edicoes_semanais(df_completo, editado):
     if ids_excluir:
         full = full[~full["id"].astype(str).isin(ids_excluir)].copy()
     return full, len(ids_excluir)
+
+
+def resumo_categorias(df):
+    """Gastos da semana por categoria, do maior para o menor: categoria, valor, pct (do total), lancamentos."""
+    if df.empty or "valor" not in df.columns:
+        return pd.DataFrame(columns=["categoria", "valor", "pct", "lancamentos"])
+    base = df.assign(
+        categoria=df.get("categoria", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+                    .replace("", "Sem categoria"),
+        valor=pd.to_numeric(df["valor"], errors="coerce").fillna(0.0),
+    )
+    resumo = (base.groupby("categoria")["valor"].agg(valor="sum", lancamentos="count").reset_index()
+              .sort_values(["valor", "categoria"], ascending=[False, True]).reset_index(drop=True))
+    resumo["valor"] = resumo["valor"].round(2)
+    total = float(resumo["valor"].sum())
+    resumo["pct"] = (resumo["valor"] / total * 100).round(1) if total else 0.0
+    return resumo[["categoria", "valor", "pct", "lancamentos"]]

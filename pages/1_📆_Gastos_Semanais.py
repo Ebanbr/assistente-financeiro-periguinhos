@@ -31,7 +31,7 @@ from fatura_projection import (
     projetar_parcelas, mascara_credito_cartao, inicio_semana,
     intervalo_fatura, aplicar_edicoes_semanais,
     faturas_encerradas, fatura_aberta, janela_semana, inicio_ciclo_aberto, lancamentos_semanais_fatura,
-    meses_fatura_importados, semanas_fatura_importada, ciclo_fatura_importada,
+    meses_fatura_importados, semanas_fatura_importada, ciclo_fatura_importada, resumo_categorias,
 )
 
 configurar_pagina("Gastos Semanais", icone="📆")
@@ -948,11 +948,24 @@ with tab_atual:
             _lim_h = float(_lim_exc.iloc[-1]) if not _lim_exc.empty else limite_padrao
             _tot_h = float(_hs["valor"].sum())
             _tag_lim = f" · limite {formatar_moeda(_lim_h)}" if _lim_h > 0 else ""
+            # "\$": com dois "R$" no título o Streamlit lia o trecho entre eles como fórmula
             with st.expander(
-                f"{max(_ini, INICIO_ABERTO or _ini).strftime('%d/%m/%Y')}–{_fim.strftime('%d/%m/%Y')} · "
-                f"{formatar_moeda(_tot_h)} · {len(_hs)} lançamento(s){_tag_lim}",
+                (f"{max(_ini, INICIO_ABERTO or _ini).strftime('%d/%m/%Y')}–{_fim.strftime('%d/%m/%Y')} · "
+                 f"{formatar_moeda(_tot_h)} · {len(_hs)} lançamento(s){_tag_lim}").replace("$", "\\$"),
                 expanded=(_ini == SEG or _ini == _semana_grafico),
             ):
+                if _fim < HOJE:
+                    # semana encerrada: resumo por categoria antes dos lançamentos
+                    _res = resumo_categorias(_hs)
+                    _maior = float(_res["valor"].max()) if not _res.empty else 0.0
+                    _linhas_res = "".join(
+                        f"<div class='resumo-linha'><span class='resumo-cat'>{esc(r.categoria)}</span>"
+                        f"<span class='resumo-barra'><span style='width:{max(r.valor, 0) / _maior * 100 if _maior > 0 else 0:.0f}%'></span></span>"
+                        f"<span class='resumo-valor num'>{formatar_moeda(r.valor)}</span>"
+                        f"<span class='resumo-pct num'>{r.pct:.0f}%</span></div>"
+                        for r in _res.itertuples())
+                    st.markdown(f"<div class='resumo-semana'><div class='resumo-titulo'>Resumo da semana · "
+                                f"{len(_res)} categorias</div>{_linhas_res}</div>", unsafe_allow_html=True)
                 _edit_hist = _hs[["data", "descricao", "categoria", "forma_pagamento", "banco", "valor", "id"]].copy()
                 _edit_hist["data"] = _hs["_dt_hist"].dt.date
                 _edit_hist.insert(0, "Excluir", False)
@@ -966,7 +979,8 @@ with tab_atual:
                         "categoria":       st.column_config.SelectboxColumn("Categoria", options=CATEGORIAS_DESPESA),
                         "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
                         "banco":           st.column_config.SelectboxColumn("Cartão", options=["", "C6 BRU", "C6 PRI", "Nubank"]),
-                        "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.01),
+                        "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f",
+                                                                     help="Estorno entra negativo."),
                         "id":              st.column_config.TextColumn("ID", disabled=True),
                     },
                     column_order=["Excluir", "data", "descricao", "categoria", "forma_pagamento", "banco", "valor"],
@@ -976,8 +990,8 @@ with tab_atual:
                     _ativos_hist = _editado_hist[_editado_hist["Excluir"] != True]
                     if _ativos_hist["descricao"].astype(str).str.strip().eq("").any():
                         mensagem_erro("A descrição não pode ficar vazia.")
-                    elif pd.to_numeric(_ativos_hist["valor"], errors="coerce").fillna(0).le(0).any():
-                        mensagem_erro("O valor precisa ser maior que zero.")
+                    elif pd.to_numeric(_ativos_hist["valor"], errors="coerce").fillna(0).eq(0).any():
+                        mensagem_erro("O valor não pode ficar zerado (estorno entra negativo).")
                     elif _ativos_hist["data"].isna().any():
                         mensagem_erro("A data não pode ficar vazia.")
                     else:

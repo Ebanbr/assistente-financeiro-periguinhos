@@ -158,6 +158,28 @@ def test_nota_offline_lanca_total_e_depois_troca_pela_divisao():
     assert servico.cupons_esperando(p) == []
 
 
+def test_nota_normal_que_a_sefaz_nao_liberou_lanca_com_total_digitado():
+    p = PlanilhaFalsa(despesas=[_gasto(categoria="🛒 Supermercado")])
+
+    def nao_liberada(link):
+        raise NotaPendente({"chave": CHAVE, "cnpj": "1", "data": None, "total": None, "link": link})
+    lido = servico.ler_cupom_qr(p, LINK, leitor=nao_liberada)
+    json.dumps(lido)
+    assert lido["status"] == "pendente" and lido["total"] is None and "ainda não liberou" in lido["mensagem"]
+    pedido = {"link": LINK, "estabelecimento": "Bio Farma", "categoria": "🛒 Supermercado",
+              "forma_pagamento": "📱 PIX"}
+    with pytest.raises(servico.ErroDeUso, match="total"):
+        servico.lancar_cupom_so_total(p, pedido, "Bruno")
+    with pytest.raises(servico.ErroDeUso, match="Data"):
+        servico.lancar_cupom_so_total(p, {**pedido, "total": 8.9, "data": "2026-10-28"}, "Bruno")
+    servico.lancar_cupom_so_total(p, {**pedido, "total": 8.9}, "Bruno")      # sem data = hoje
+    linha = [l for l in p.abas["despesas"] if CHAVE in str(l["observacao"])][0]
+    assert (linha["valor"], linha["data"], linha["observacao"]) == (8.9, "2026-10-27", f"NFC-e {CHAVE} · itens pendentes")
+    assert [c["chave"] for c in servico.cupons_esperando(p)] == [CHAVE]
+    lido = servico.ler_cupom_qr(p, LINK, leitor=lambda link: ler_nfce(XML))   # chegou: troca pelos itens
+    assert lido["substitui_total"]
+
+
 def test_qr_sem_itens_fica_so_com_o_total():
     p = PlanilhaFalsa(despesas=[_gasto(observacao=f"NFC-e {OFFLINE} · itens pendentes")])
 

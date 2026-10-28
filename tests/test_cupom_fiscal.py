@@ -155,7 +155,13 @@ def test_nota_offline_nao_recebida_vira_pendente(monkeypatch):
     with pytest.raises(NotaPendente) as erro:
         ler_cupom(f"http://nfce.sefaz.pe.gov.br/nfce/consulta?p={OFFLINE}|2|1|14|56.61|BC41")
     assert erro.value.dados["total"] == 56.61
-    with pytest.raises(ValueError) as erro:                          # nota online não encontrada: erro comum
+    with pytest.raises(NotaPendente) as erro:              # nota normal que a SEFAZ ainda não liberou
+        ler_cupom(LINK)
+    assert erro.value.dados["total"] is None and erro.value.dados["data"] is None
+    assert erro.value.dados["chave"] == chave_do_link(LINK) and "ainda não liberou" in str(erro.value)
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml",
+                        lambda link: '<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><erro>202</erro></nfeProc>')
+    with pytest.raises(ValueError) as erro:                          # outro erro: continua erro comum
         ler_cupom(LINK)
     assert not isinstance(erro.value, NotaPendente)
 

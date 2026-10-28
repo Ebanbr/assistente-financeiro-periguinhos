@@ -17,17 +17,12 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,12 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneOffset
 
 /** Lançar um gasto novo (linha == null) ou editar/excluir um lançado à mão. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit) {
     val contexto = LocalContext.current
@@ -150,25 +142,7 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
         }
     }
 
-    if (escolherData) {
-        val hojeMs = LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
-        val estado = rememberDatePickerState(
-            initialSelectedDateMillis = data.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
-            selectableDates = object : SelectableDates {
-                override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= hojeMs
-            },
-        )
-        DatePickerDialog(
-            onDismissRequest = { escolherData = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    estado.selectedDateMillis?.let { data = Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate() }
-                    escolherData = false
-                }) { Text("OK") }
-            },
-            dismissButton = { TextButton(onClick = { escolherData = false }) { Text("Cancelar") } },
-        ) { DatePicker(estado) }
-    }
+    if (escolherData) EscolherData(data, { escolherData = false }) { data = it }
 
     if (confirmarExclusao && linha != null) {
         AlertDialog(

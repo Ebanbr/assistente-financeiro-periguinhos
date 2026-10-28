@@ -13,15 +13,20 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,6 +37,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import java.text.Normalizer
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 val CorPositiva = Color(0xFF34D399)
 val CorAlerta = Color(0xFFFBBF24)
@@ -123,4 +131,27 @@ fun Escolha(opcoes: List<String>, atual: String?, aoEscolher: (String) -> Unit) 
             FilterChip(selected = op == atual, onClick = { aoEscolher(op) }, label = { Text(op) })
         }
     }
+}
+
+/** Calendário para escolher uma data até hoje. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EscolherData(atual: LocalDate, aoFechar: () -> Unit, aoEscolher: (LocalDate) -> Unit) {
+    val hojeMs = LocalDate.now().atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli()
+    val estado = rememberDatePickerState(
+        initialSelectedDateMillis = atual.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli(),
+        selectableDates = object : SelectableDates {
+            override fun isSelectableDate(utcTimeMillis: Long) = utcTimeMillis <= hojeMs
+        },
+    )
+    DatePickerDialog(
+        onDismissRequest = aoFechar,
+        confirmButton = {
+            TextButton(onClick = {
+                estado.selectedDateMillis?.let { aoEscolher(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
+                aoFechar()
+            }) { Text("OK") }
+        },
+        dismissButton = { TextButton(onClick = aoFechar) { Text("Cancelar") } },
+    ) { DatePicker(estado) }
 }

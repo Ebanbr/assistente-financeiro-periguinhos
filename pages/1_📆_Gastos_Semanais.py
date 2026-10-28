@@ -399,10 +399,25 @@ with tab_atual:
                 mensagem_aviso("Esse cupom já está lançado. Quando a SEFAZ receber a nota, leia o QR Code de novo "
                                "para trocar o total pela divisão por categoria.")
             else:
-                st.warning(f"A SEFAZ ainda não recebeu essa nota (o caixa do mercado estava offline). "
-                           f"Lance agora só com o total — **{formatar_moeda(pendente['total'])}** em "
-                           f"{data_p.strftime('%d/%m/%Y') if pd.notna(data_p) else '—'} — e, quando a nota chegar "
-                           "(até 24 h), leia o mesmo QR Code de novo para trocar pela divisão por categoria.")
+                total_p = pendente["total"]
+                if total_p is None:
+                    # nota normal que a SEFAZ ainda não liberou: o QR não traz total nem data
+                    st.warning("A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas "
+                               "depois da compra). Lance agora com o total do cupom e, mais tarde, toque em "
+                               "\"🔄 Já chegou?\" para trocar pela divisão por categoria.")
+                    pt1, pt2 = st.columns(2)
+                    with pt1:
+                        total_p = st.number_input("Total do cupom (R$):", min_value=0.0, step=0.01, format="%.2f",
+                                                  key=f"pend_total_{pendente['chave']}") or None
+                    with pt2:
+                        data_p = pd.Timestamp(st.date_input("Data:", value=HOJE, max_value=HOJE, format="DD/MM/YYYY",
+                                                            key=f"pend_data_{pendente['chave']}"))
+                else:
+                    st.warning(f"A SEFAZ ainda não recebeu essa nota (o caixa do mercado estava offline). "
+                               f"Lance agora só com o total — **{formatar_moeda(total_p)}** em "
+                               f"{data_p.strftime('%d/%m/%Y') if pd.notna(data_p) else '—'} — e, quando a nota "
+                               "chegar (até 24 h), leia o mesmo QR Code de novo para trocar pela divisão por "
+                               "categoria.")
                 estab_p = st.text_input(
                     "Estabelecimento:", key=f"pend_estab_{pendente['chave']}", placeholder="ex: Recibom",
                     value=nome_lembrado(pendente["cnpj"], ler_csv(ITENS_CUPOM_FILE)) or "").strip()
@@ -422,9 +437,11 @@ with tab_atual:
                     cartao_p = st.selectbox("Cartão (somente para crédito):",
                                             ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"],
                                             key=f"pend_cartao_{pendente['chave']}")
-                if st.button(f"⚡ Lançar agora só com o total ({formatar_moeda(pendente['total'])})",
-                             type="primary", use_container_width=True):
-                    if not estab_p:
+                rotulo_p = f" ({formatar_moeda(total_p)})" if total_p else ""
+                if st.button(f"⚡ Lançar agora só com o total{rotulo_p}", type="primary", use_container_width=True):
+                    if not total_p:
+                        mensagem_erro("Informe o total do cupom.")
+                    elif not estab_p:
                         mensagem_erro("Informe o estabelecimento.")
                     elif not cat_p:
                         mensagem_erro("Escolha a categoria.")
@@ -435,7 +452,7 @@ with tab_atual:
                     else:
                         n = salvar_despesas_novas(pd.DataFrame([{
                             "id": gerar_id(), "data": data_p.strftime("%Y-%m-%d"), "descricao": estab_p,
-                            "categoria": cat_p, "valor": pendente["total"], "forma_pagamento": forma_p,
+                            "categoria": cat_p, "valor": round(float(total_p), 2), "forma_pagamento": forma_p,
                             "banco": cartao_p if forma_p == "💳 Crédito" else "", "status": "Pago",
                             "observacao": marca_pendente(pendente["chave"]),
                             "fonte": FONTE_SEMANAL, "criado_em": agora(),
@@ -446,12 +463,12 @@ with tab_atual:
                             nova_pend = pd.DataFrame([{
                                 "id": gerar_id(), "chave": pendente["chave"], "link": pendente["link"],
                                 "data": data_p.strftime("%Y-%m-%d"), "estabelecimento": estab_p,
-                                "valor": pendente["total"], "criado_em": agora(),
+                                "valor": round(float(total_p), 2), "criado_em": agora(),
                             }])[COLUNAS_CUPONS_PENDENTES]
                             if salvar_parquet("cupons_pendentes", pd.concat([df_cupons_pend, nova_pend],
                                                                             ignore_index=True)):
                                 invalidar_cache("cupons_pendentes")
-                            mensagem_sucesso(f"Lançado: {estab_p} · {formatar_moeda(pendente['total'])} "
+                            mensagem_sucesso(f"Lançado: {estab_p} · {formatar_moeda(total_p)} "
                                              "(itens pendentes)")
                             st.session_state.pop("cupom_pendente", None)
                             st.session_state["_limpar_cupom"] = True

@@ -377,11 +377,21 @@ def lancar_cupom(planilha, pedido, usuario, leitor=ler_cupom):
 
 
 def lancar_cupom_so_total(planilha, pedido, usuario, leitor_offline=None):
-    """Nota offline: lança já só com o total e guarda o link para buscar os itens depois."""
-    from cupom_fiscal import dados_do_qr_offline
-    dados = (leitor_offline or dados_do_qr_offline)(_texto(pedido.get("link")))
-    if not dados:
-        raise ErroDeUso("Esse QR Code não é de nota offline.")
+    """Nota que a SEFAZ ainda não tem: lança já só com o total e guarda o link para buscar os itens
+    depois. Nota offline: data e total vêm do QR. Nota normal: total (e data) vêm do pedido."""
+    from cupom_fiscal import dados_do_qr
+    try:
+        dados = dict((leitor_offline or dados_do_qr)(_texto(pedido.get("link"))))
+    except ValueError as e:
+        raise ErroDeUso(str(e))
+    if dados.get("total") is None:
+        total = pd.to_numeric(pedido.get("total"), errors="coerce")
+        if pd.isna(total) or total <= 0:
+            raise ErroDeUso("Informe o total do cupom.")
+        data = pd.to_datetime(pedido.get("data") or hoje(), errors="coerce")
+        if pd.isna(data) or data.date() > hoje():
+            raise ErroDeUso("Data inválida.")
+        dados.update(total=round(float(total), 2), data=data.strftime("%Y-%m-%d"))
     estab = _texto(pedido.get("estabelecimento")).strip()
     categoria = _texto(pedido.get("categoria")).strip() or "🛒 Supermercado"
     forma = _texto(pedido.get("forma_pagamento")).strip()

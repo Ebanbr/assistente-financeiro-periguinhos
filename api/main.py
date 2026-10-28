@@ -67,6 +67,8 @@ class CupomSoTotal(BaseModel):
     categoria: str | None = None
     forma_pagamento: str
     banco: str | None = None
+    total: float | None = None          # nota normal: o QR não traz o total
+    data: str | None = None
 
 
 @app.get("/saude")

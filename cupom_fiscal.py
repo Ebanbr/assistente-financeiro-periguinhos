@@ -103,11 +103,20 @@ def emitida_offline(link):
 
 
 class NotaPendente(ValueError):
-    """Nota offline que a SEFAZ ainda não recebeu; `dados` traz o que o QR Code já informa."""
+    """Nota que a SEFAZ ainda não tem (236); `dados` traz o que o QR Code já informa.
+
+    Nota offline: o QR traz data e total. Nota normal: só chave e CNPJ (`data`/`total` = None),
+    e quem lança informa o total.
+    """
 
     def __init__(self, dados):
-        super().__init__("Essa nota foi emitida com o caixa offline e a SEFAZ ainda não a recebeu "
-                         "(o mercado tem até 24 horas para enviar).")
+        if dados.get("total") is None:
+            texto = ("A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas "
+                     "depois da compra).")
+        else:
+            texto = ("Essa nota foi emitida com o caixa offline e a SEFAZ ainda não a recebeu "
+                     "(o mercado tem até 24 horas para enviar).")
+        super().__init__(texto)
         self.dados = dados
 
 
@@ -144,9 +153,20 @@ def dados_do_qr_offline(link):
             "link": link}
 
 
+def dados_do_qr(link):
+    """O que dá para lançar antes da SEFAZ ter a nota: offline → chave, CNPJ, data e total;
+    normal → só chave e CNPJ (`data`/`total` = None)."""
+    dados = dados_do_qr_offline(link)
+    if dados:
+        return dados
+    link = validar_link(link)
+    chave = chave_do_link(link)
+    return {"chave": chave, "cnpj": chave[6:20], "data": None, "total": None, "link": link}
+
+
 def ler_cupom(link):
-    """Baixa e lê a nota. Nota offline ainda não recebida pela SEFAZ → NotaPendente;
-    já autorizada mas sem itens pelo link (erro 100) → NotaSemItens."""
+    """Baixa e lê a nota. Nota que a SEFAZ ainda não tem (236, ou offline ainda não enviada)
+    → NotaPendente; offline já autorizada mas sem itens pelo link (erro 100) → NotaSemItens."""
     link = validar_link(link)
     xml_texto = baixar_xml(link)
     try:
@@ -157,6 +177,8 @@ def ler_cupom(link):
             raise NotaSemItens(dados)
         if dados:
             raise NotaPendente(dados)
+        if _codigo_erro(xml_texto) == "236":
+            raise NotaPendente(dados_do_qr(link))
         raise
 
 

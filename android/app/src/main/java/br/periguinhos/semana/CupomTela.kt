@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -32,21 +33,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.time.LocalDate
 import kotlin.math.abs
 
-/** Cupom lido pelo QR: confere as categorias dos itens e lança; nota offline lança só com o total. */
+/** Cupom lido pelo QR: confere as categorias dos itens e lança; nota que a SEFAZ ainda não tem lança só com
+ * o total (offline: o QR traz o total; normal: quem lança digita o total e a data). */
 @Composable
 fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSair: (Boolean) -> Unit) {
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
     val status = leitura.optString("status")
     val chave = leitura.optString("chave")
-    val total = leitura.optDouble("total", 0.0)
+    val totalNoQr = !leitura.isNull("total")
+    val total = if (totalNoQr) leitura.optDouble("total", 0.0) else 0.0
     val jaLancado = leitura.optBoolean("ja_lancado")
     var estab by remember { mutableStateOf(leitura.optString("estabelecimento", "").let { if (it == "null") "" else it }) }
     var forma by remember {
@@ -60,9 +65,14 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
     var editando by remember { mutableStateOf<Int?>(null) }
     var salvando by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
+    var totalDigitado by remember { mutableStateOf("") }
+    var data by remember { mutableStateOf(LocalDate.now()) }
+    var escolherData by remember { mutableStateOf(false) }
 
     fun enviar() {
+        val digitado = lerValor(totalDigitado)
         erro = when {
+            !totalNoQr && (digitado == null || digitado <= 0.0) -> "Informe o total do cupom."
             estab.isBlank() -> "Informe o estabelecimento."
             forma == null -> "Escolha a forma de pagamento."
             forma == "💳 Crédito" && cartao == null -> "Escolha o cartão."
@@ -81,6 +91,7 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
                     api.lancarCupom(pedido.put("chave", chave).put("categorias", cats))
                     Toast.makeText(contexto, "Cupom lançado: ${estab.trim()} · ${reais(total)}", Toast.LENGTH_SHORT).show()
                 } else {
+                    if (!totalNoQr) pedido.put("total", digitado).put("data", data.toString())
                     api.lancarSoTotal(pedido.put("categoria", categoriaTotal))
                     Toast.makeText(contexto, "Lançado só com o total (itens pendentes)", Toast.LENGTH_SHORT).show()
                 }
@@ -99,9 +110,11 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
                 IconButton(onClick = { aoSair(false) }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Voltar") }
                 Column(Modifier.weight(1f)) {
                     Text("🧾 Cupom fiscal", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                    Text("${dataBr(leitura.optString("data"))} · ${reais(total)}" +
-                        if (status == "ok") " · ${itens.size} itens" else "",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (totalNoQr) {
+                        Text("${dataBr(leitura.optString("data"))} · ${reais(total)}" +
+                            if (status == "ok") " · ${itens.size} itens" else "",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
@@ -117,12 +130,26 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
         when (status) {
             "pendente" -> item {
                 Bloco {
-                    Text("A SEFAZ ainda não recebeu essa nota (o caixa estava offline). Lance agora só com o total e, " +
-                        "quando ela chegar (até 24 h), toque em \"Já chegou?\" na semana para dividir por categoria.")
+                    Text(if (totalNoQr) "A SEFAZ ainda não recebeu essa nota (o caixa estava offline). Lance agora só " +
+                        "com o total e, quando ela chegar (até 24 h), toque em \"Já chegou?\" na semana para dividir " +
+                        "por categoria."
+                    else "A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas depois da " +
+                        "compra). Lance agora com o total do cupom e, mais tarde, toque em \"Já chegou?\" na semana " +
+                        "para dividir por categoria.")
                 }
             }
             "sem_itens" -> item {
                 Bloco { Text(leitura.optString("mensagem") + " Dá para lançar só com o total.") }
+            }
+        }
+        if (!totalNoQr) {
+            item {
+                OutlinedTextField(totalDigitado, { totalDigitado = it }, label = { Text("Total do cupom (R$)") },
+                    singleLine = true, placeholder = { Text("0,00") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth())
+                Text("Data: ${dataBr(data.toString())}", color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable { escolherData = true }.padding(vertical = 8.dp))
             }
         }
         item {
@@ -178,12 +205,15 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
                     salvando -> "Lançando…"
                     status == "ok" && leitura.optBoolean("substitui_total") -> "💾 Trocar o total pela divisão"
                     status == "ok" -> "💾 Lançar cupom"
-                    else -> "⚡ Lançar só com o total (${reais(total)})"
+                    totalNoQr -> "⚡ Lançar só com o total (${reais(total)})"
+                    else -> "⚡ Lançar com o total"
                 })
             }
             Spacer(Modifier.height(32.dp))
         }
     }
+
+    if (escolherData) EscolherData(data, { escolherData = false }) { data = it }
 
     editando?.let { i ->
         EscolherCategoria(opcoes.categoriasCupom, { editando = null }) { cat ->

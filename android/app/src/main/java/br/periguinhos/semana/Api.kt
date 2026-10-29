@@ -107,6 +107,9 @@ class Api(private val prefs: SharedPreferences) {
     suspend fun lerCupom(link: String): JSONObject =
         JSONObject(chamar("POST", "/cupom/ler", JSONObject().put("link", link)))
 
+    suspend fun lerCupomPagina(chave: String, html: String): JSONObject =
+        JSONObject(chamar("POST", "/cupom/pagina", JSONObject().put("chave", chave).put("html", html)))
+
     suspend fun lancarCupom(pedido: JSONObject): JSONObject = JSONObject(chamar("POST", "/cupom/lancar", pedido))
 
     suspend fun lancarSoTotal(pedido: JSONObject): JSONObject = JSONObject(chamar("POST", "/cupom/so-total", pedido))

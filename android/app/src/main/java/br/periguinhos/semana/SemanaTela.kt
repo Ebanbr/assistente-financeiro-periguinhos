@@ -77,6 +77,7 @@ fun SemanaTela(
     aoNovoGasto: () -> Unit,
     aoEditar: (Linha) -> Unit,
     aoCupom: (JSONObject, String) -> Unit,
+    aoConsultarSefaz: (String) -> Unit,
 ) {
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
@@ -232,10 +233,14 @@ fun SemanaTela(
             onDismissRequest = { semItens = null },
             title = { Text("Sem os itens") },
             text = {
-                Text("A nota já chegou na SEFAZ, mas ela não devolve os itens desse QR Code. " +
-                    "O gasto continua lançado com o total (${reais(c.valor)}).")
+                Text("A nota já chegou na SEFAZ, mas ela não devolve os itens pelo QR Code. O gasto continua " +
+                    "lançado com o total (${reais(c.valor)}). Dá para pegar os itens consultando a nota pela chave " +
+                    "no site da SEFAZ (você marca o \"Não sou um robô\").")
             },
             confirmButton = {
+                TextButton(onClick = { semItens = null; aoConsultarSefaz(c.chave) }) { Text("Consultar na SEFAZ") }
+            },
+            dismissButton = {
                 TextButton(onClick = {
                     semItens = null
                     escopo.launch {
@@ -247,7 +252,6 @@ fun SemanaTela(
                     }
                 }) { Text("Ficar só com o total") }
             },
-            dismissButton = { TextButton(onClick = { semItens = null }) { Text("Agora não") } },
         )
     }
 }

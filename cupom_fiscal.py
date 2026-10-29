@@ -298,6 +298,133 @@ def ler_nfce(xml_texto):
     }
 
 
+# ── Página da consulta pela chave (quem consulta resolve o reCAPTCHA no site da SEFAZ) ──
+# Nota de contingência já autorizada: o link do QR responde erro 100 e não traz os itens, mas a
+# consulta completa pela chave (com o "Não sou um robô" feito pela pessoa) mostra a nota inteira
+# numa página HTML. Aqui só lemos essa página; nada é enviado à SEFAZ.
+
+URL_CONSULTA_CHAVE = "https://nfce.sefaz.pe.gov.br:444/nfce-web/entradaConsNfce?tp=C"
+
+
+class _No:
+    def __init__(self, tag, attrs):
+        self.tag, self.attrs, self.filhos, self.texto = tag, dict(attrs), [], []
+
+    def classes(self):
+        return (self.attrs.get("class") or "").split()
+
+    def todos(self):
+        for f in self.filhos:
+            yield f
+            yield from f.todos()
+
+    def texto_todo(self):
+        partes = list(self.texto) + [f.texto_todo() for f in self.filhos]
+        return " ".join(" ".join(partes).replace("\xa0", " ").split())
+
+
+def _arvore(html):
+    from html.parser import HTMLParser
+
+    vazias = {"meta", "link", "br", "img", "input", "hr", "base", "col", "source", "wbr"}
+    raiz = _No("raiz", [])
+    pilha = [raiz]
+
+    class Leitor(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            no = _No(tag, attrs)
+            pilha[-1].filhos.append(no)
+            if tag not in vazias:
+                pilha.append(no)
+
+        def handle_endtag(self, tag):
+            for i in range(len(pilha) - 1, 0, -1):   # fecha até a tag (HTML mal fechado não quebra)
+                if pilha[i].tag == tag:
+                    del pilha[i:]
+                    break
+
+        def handle_data(self, data):
+            pilha[-1].texto.append(data)
+
+    Leitor(convert_charrefs=True).feed(html)
+    return raiz
+
+
+def _pares(no):
+    """[(rótulo, valor)] dos blocos "form-group": <label>rótulo</label><label|textarea>valor</…>."""
+    pares = []
+    for g in [no] + list(no.todos()):
+        if "form-group" in g.classes():
+            campos = [f for f in g.filhos if f.tag in ("label", "textarea")]
+            if len(campos) >= 2:
+                pares.append((campos[0].texto_todo(), campos[1].texto_todo()))
+    return pares
+
+
+def _valor(pares, rotulo):
+    return next((v for r, v in pares if r == rotulo), "")
+
+
+def _num_br(texto):
+    texto = (texto or "").strip().replace(".", "").replace(",", ".")
+    try:
+        return float(texto) if texto else 0.0
+    except ValueError:
+        return 0.0
+
+
+def ler_pagina_consulta(html):
+    """Página do resultado da consulta completa pela chave → mesmo formato de `ler_nfce`."""
+    raiz = _arvore(html or "")
+    por_id = {n.attrs["id"]: n for n in raiz.todos() if n.attrs.get("id")}
+    if "produtos" not in por_id or "nfce" not in por_id:
+        raise ValueError("Essa página não é o resultado da consulta da nota na SEFAZ-PE.")
+    situacao = " ".join(n.texto_todo() for n in raiz.todos() if "Situação Atual" in "".join(n.texto))
+    if "CANCELADA" in situacao.upper():
+        raise ValueError("A SEFAZ diz que essa nota foi cancelada.")
+
+    chave = re.sub(r"\D", "", _valor(_pares(raiz), "Chave de Acesso"))
+    nfce = _pares(por_id["nfce"])
+    emit = _pares(por_id.get("emitente-conteudo", por_id["nfce"]))
+    m = re.match(r"(\d{2})/(\d{2})/(\d{4})", _valor(nfce, "Data de Emissão"))
+    if len(chave) != 44 or not m:
+        raise ValueError("Não achei a chave e a data da nota nessa página.")
+
+    itens = []
+    for linha in por_id["produtos"].todos():
+        if "row-custom" not in linha.classes():
+            continue
+        celulas = [n for n in linha.todos() if "form-control" in n.classes()]
+        if len(celulas) < 6:
+            continue
+        num, descricao, qtd, unidade, _, valor = (c.texto_todo() for c in celulas[:6])
+        detalhe = _pares(por_id.get((linha.attrs.get("data-target") or "").lstrip("#"), _No("x", [])))
+        liquido = (_num_br(valor) - _num_br(_valor(detalhe, "Valor do Desconto"))
+                   + _num_br(_valor(detalhe, "Outras Despesas Acessórias"))
+                   + _num_br(_valor(detalhe, "Valor Total do Frete")) + _num_br(_valor(detalhe, "Valor do Seguro")))
+        itens.append({
+            "item": int(num) if num.isdigit() else len(itens) + 1,
+            "descricao": descricao,
+            "ncm": re.sub(r"\D", "", _valor(detalhe, "Código NCM")),
+            "quantidade": _num_br(qtd),
+            "unidade": unidade,
+            "valor": round(liquido, 2),
+        })
+    if not itens:
+        raise ValueError("Não achei os produtos nessa página.")
+
+    nome = _valor(emit, "Nome Fantasia") or _valor(emit, "Nome / Razão Social")
+    return {
+        "chave": chave,
+        "data": f"{m.group(3)}-{m.group(2)}-{m.group(1)}",
+        "estabelecimento": nome,
+        "cnpj": re.sub(r"\D", "", _valor(emit, "CNPJ / CPF")),
+        "total": round(_num_br(_valor(nfce, "Valor Total da Nota Fiscal")), 2),
+        "forma_pagamento": None,
+        "itens": pd.DataFrame(itens, columns=["item", "descricao", "ncm", "quantidade", "unidade", "valor"]),
+    }
+
+
 def categoria_por_ncm(ncm):
     ncm = re.sub(r"\D", "", str(ncm or ""))
     for tamanho in (4, 2):

@@ -54,6 +54,7 @@ sealed interface Tela {
     data object Semana : Tela
     data class Gasto(val linha: Linha?) : Tela
     data class Cupom(val leitura: JSONObject, val link: String) : Tela
+    data class Consulta(val chave: String) : Tela
 }
 
 @Composable
@@ -74,9 +75,13 @@ fun App(api: Api) {
             aoNovoGasto = { tela = Tela.Gasto(null) },
             aoEditar = { tela = Tela.Gasto(it) },
             aoCupom = { leitura, link -> tela = Tela.Cupom(leitura, link) },
+            aoConsultarSefaz = { tela = Tela.Consulta(it) },
         )
         is Tela.Gasto -> opcoes?.let { GastoTela(api, it, t.linha, voltar) } ?: Carregando()
-        is Tela.Cupom -> opcoes?.let { CupomTela(api, it, t.leitura, t.link, voltar) } ?: Carregando()
+        is Tela.Cupom -> opcoes?.let {
+            CupomTela(api, it, t.leitura, t.link, voltar, aoConsultarSefaz = { chave -> tela = Tela.Consulta(chave) })
+        } ?: Carregando()
+        is Tela.Consulta -> ConsultaSefazTela(api, t.chave, aoLido = { tela = Tela.Cupom(it, "") }, aoSair = voltar)
     }
 }
 

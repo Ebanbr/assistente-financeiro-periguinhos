@@ -59,6 +59,12 @@ class LancarCupom(BaseModel):
     forma_pagamento: str
     banco: str | None = None
     categorias: dict[str, str] = {}     # nº do item → categoria escolhida (o resto fica a sugerida)
+    html: str | None = None             # página da consulta pela chave (nota de contingência)
+
+
+class PaginaConsulta(BaseModel):
+    chave: str | None = None
+    html: str
 
 
 class CupomSoTotal(BaseModel):
@@ -118,6 +124,11 @@ def excluir(id_gasto: str, usuario: str = Depends(usuario_atual)):
 @app.post("/cupom/ler")
 def ler_cupom(pedido: LinkQR, usuario: str = Depends(usuario_atual)):
     return _executar(servico.ler_cupom_qr, planilha, pedido.link)
+
+
+@app.post("/cupom/pagina")
+def ler_cupom_pagina(pedido: PaginaConsulta, usuario: str = Depends(usuario_atual)):
+    return _executar(servico.ler_cupom_pagina, planilha, pedido.chave, pedido.html)
 
 
 @app.post("/cupom/lancar")

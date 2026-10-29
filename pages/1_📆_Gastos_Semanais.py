@@ -16,7 +16,7 @@ from ui_theme import paleta_graficos, tema_atual
 from expense_defaults import categoria_do_local
 from leitor_qr import leitor_disponivel, ler_qr_ao_vivo
 from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_compras, concluir_pendente,
-                          ler_cupom, link_do_qr, sugerir_categorias,
+                          ler_cupom, ler_pagina_consulta, link_do_qr, sugerir_categorias, URL_CONSULTA_CHAVE,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
                           agrupar_por_categoria, ja_lancado, nome_lembrado)
 
@@ -207,6 +207,23 @@ with tab_atual:
                 if st.session_state.get(f"sem_itens_{cp['chave']}"):
                     st.info("A nota já chegou na SEFAZ, mas ela responde \"QR Code inválido\" para o QR desse "
                             "cupom e não devolve os itens. O gasto continua lançado com o total.")
+                    st.markdown(f"Para pegar os itens: abra a [consulta completa da SEFAZ]({URL_CONSULTA_CHAVE}), "
+                                f"cole a chave `{cp['chave']}`, marque \"Não sou um robô\", consulte e salve a página "
+                                "(Ctrl+S, \"Página da Web, completa\"). Depois mande o arquivo aqui:")
+                    pagina = st.file_uploader("📄 Página salva da consulta (.html)", type=["html", "htm"],
+                                              key=f"pagina_{cp['chave']}")
+                    if pagina is not None:
+                        try:
+                            lido = ler_pagina_consulta(pagina.getvalue().decode("utf-8", errors="replace"))
+                            if lido["chave"] != str(cp["chave"]):
+                                mensagem_erro("Essa página é de outra nota (a chave não bate).")
+                            else:
+                                st.session_state["cupom_lido"] = lido
+                                st.session_state.pop("cupom_pendente", None)
+                                st.session_state.pop(f"sem_itens_{cp['chave']}", None)
+                                st.rerun()
+                        except ValueError as e:
+                            mensagem_erro(str(e))
                     if st.button("✔️ Ficar só com o total", key=f"so_total_{cp['chave']}"):
                         base_d = concluir_pendente(cp["chave"], ler_csv(DESPESAS_FILE))
                         if salvar_parquet("despesas", base_d):

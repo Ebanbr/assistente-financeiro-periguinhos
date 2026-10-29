@@ -9,7 +9,10 @@ from api import acesso, servico
 from api.planilha import _para_df
 from cupom_fiscal import NotaPendente, NotaSemItens, ler_nfce
 
-from test_cupom_fiscal import CHAVE, LINK, XML
+from test_cupom_fiscal import CHAVE, LINK, PAGINA_CONSULTA, XML
+from test_cupom_fiscal import OFFLINE as CHAVE_PAGINA
+
+PAGINA = PAGINA_CONSULTA.replace("28/10/2026", "26/10/2026")   # antes do "hoje" fixo dos testes
 
 OFFLINE = "26261000943155000242651070005674329182615687"
 LINK_OFFLINE = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe{OFFLINE}|2|1|26|56.61|BC41"
@@ -205,3 +208,23 @@ def test_login_token_e_bloqueio(monkeypatch):
     with pytest.raises(PermissionError, match="Espere"):
         acesso.entrar("BOo", "senha-de-teste", agora=3010)
     assert acesso.entrar("BOo", "senha-de-teste", agora=3000 + 301)
+
+
+def test_contingencia_sem_itens_pela_pagina_da_consulta_troca_o_total():
+    p = PlanilhaFalsa(despesas=[_gasto(id="t1", data="2026-10-27", descricao="Super Exemplo", categoria="🛒 Supermercado",
+                                       valor="1020.5", observacao=f"NFC-e {CHAVE_PAGINA} · itens pendentes")])
+    with pytest.raises(servico.ErroDeUso, match="outra nota"):
+        servico.ler_cupom_pagina(p, OFFLINE, PAGINA)
+    with pytest.raises(servico.ErroDeUso, match="não é o resultado"):
+        servico.ler_cupom_pagina(p, CHAVE_PAGINA, "<html><body>Consulta NFC-e</body></html>")
+    lido = servico.ler_cupom_pagina(p, CHAVE_PAGINA, PAGINA)
+    json.dumps(lido)
+    assert lido["status"] == "ok" and lido["substitui_total"] and len(lido["itens"]) == 3
+    assert lido["estabelecimento"] == "Super Exemplo" and lido["total"] == 1020.5
+    servico._LIDOS.clear()                     # servidor reiniciou entre ler e lançar: usa a página enviada
+    servico.lancar_cupom(p, {"chave": CHAVE_PAGINA, "html": PAGINA, "estabelecimento": "Super Exemplo",
+                             "forma_pagamento": "📱 PIX"}, "Bruno")
+    do_cupom = [l for l in p.abas["despesas"] if CHAVE_PAGINA in str(l["observacao"])]
+    assert all("pendentes" not in l["observacao"] for l in do_cupom) and len(do_cupom) >= 2
+    assert round(sum(float(l["valor"]) for l in do_cupom), 2) == 1020.5
+    assert len(p.abas["itens_cupom"]) == 3

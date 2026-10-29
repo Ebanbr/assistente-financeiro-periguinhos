@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -45,7 +46,10 @@ import kotlin.math.abs
 /** Cupom lido pelo QR: confere as categorias dos itens e lança; nota que a SEFAZ ainda não tem lança só com
  * o total (offline: o QR traz o total; normal: quem lança digita o total e a data). */
 @Composable
-fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSair: (Boolean) -> Unit) {
+fun CupomTela(
+    api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSair: (Boolean) -> Unit,
+    aoConsultarSefaz: (String) -> Unit,
+) {
     val contexto = LocalContext.current
     val escopo = rememberCoroutineScope()
     val status = leitura.optString("status")
@@ -88,6 +92,7 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
                 if (status == "ok") {
                     val cats = JSONObject()
                     itens.forEach { cats.put(it.item.toString(), it.categoria) }
+                    leitura.optString("_html").takeIf { it.isNotBlank() }?.let { pedido.put("html", it) }
                     api.lancarCupom(pedido.put("chave", chave).put("categorias", cats))
                     Toast.makeText(contexto, "Cupom lançado: ${estab.trim()} · ${reais(total)}", Toast.LENGTH_SHORT).show()
                 } else {
@@ -139,7 +144,13 @@ fun CupomTela(api: Api, opcoes: Opcoes, leitura: JSONObject, link: String, aoSai
                 }
             }
             "sem_itens" -> item {
-                Bloco { Text(leitura.optString("mensagem") + " Dá para lançar só com o total.") }
+                Bloco {
+                    Column {
+                        Text(leitura.optString("mensagem") + " Dá para lançar só com o total, ou pegar os itens " +
+                            "consultando a nota pela chave no site da SEFAZ (você marca o \"Não sou um robô\").")
+                        TextButton(onClick = { aoConsultarSefaz(chave) }) { Text("🔎 Consultar na SEFAZ") }
+                    }
+                }
             }
         }
         if (!totalNoQr) {

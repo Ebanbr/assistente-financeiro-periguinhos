@@ -315,15 +315,32 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
     }
 
 
+def ler_cupom_pagina(planilha, chave, html):
+    """Nota de contingência que o QR não devolve: lê a página da consulta pela chave (o reCAPTCHA é
+    feito pela pessoa no site da SEFAZ, dentro do app). Mesma resposta de ``ler_cupom_qr``."""
+    from cupom_fiscal import ler_pagina_consulta
+    try:
+        cupom = ler_pagina_consulta(html)
+    except ValueError as e:
+        raise ErroDeUso(str(e))
+    if chave and cupom["chave"] != _texto(chave):
+        raise ErroDeUso("Essa página é de outra nota (a chave não bate).")
+    return ler_cupom_qr(planilha, None, leitor=lambda _: cupom)
+
+
 def lancar_cupom(planilha, pedido, usuario, leitor=ler_cupom):
     """Grava o cupom lido: uma linha por categoria + item a item. Se o cupom já estava lançado
     só com o total (nota offline), troca essa linha pela divisão."""
     chave = _texto(pedido.get("chave"))
     cupom = _LIDOS.get(chave)
     if cupom is None:
-        if not pedido.get("link"):
+        if pedido.get("html"):
+            from cupom_fiscal import ler_pagina_consulta
+            cupom = ler_pagina_consulta(pedido["html"])
+        elif pedido.get("link"):
+            cupom = leitor(pedido["link"])
+        else:
             raise ErroDeUso("Leia o QR Code de novo.")
-        cupom = leitor(pedido["link"])
         _LIDOS[cupom["chave"]] = cupom
         chave = cupom["chave"]
     estab = _texto(pedido.get("estabelecimento")).strip()

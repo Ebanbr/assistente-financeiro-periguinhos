@@ -218,3 +218,61 @@ def test_lista_so_cupons_cuja_linha_do_total_ainda_existe():
     lista = cupons_aguardando(pend, despesas)
     assert lista["chave"].tolist() == [OFFLINE] and lista["link"].tolist() == ["c"]
     assert cupons_aguardando(pd.DataFrame(), despesas).empty
+
+
+def _grupo(rotulo, valor, textarea=False):
+    campo = (f'<textarea class="form-control form-control-sm" rows="1" disabled="">{valor}</textarea>' if textarea
+             else f'<label class="form-control form-control-sm">{valor} &nbsp; </label>')
+    return f'<div class="col-md-3"><div class="form-group"><label>{rotulo}</label>{campo}</div></div>'
+
+
+def _produto(n, descricao, qtd, un, unit, valor, ncm, desconto=""):
+    celula = '<div class="col-md-1"><div class="form-group"><label class="form-control form-control-sm label-custom">{}</label></div></div>'
+    return (
+        f'<div class="row row-custom row-produto-mob" data-toggle="collapse" data-target="#produto{n}">'
+        f'<div class="col-md-1"><i id="produto{n}_bar" class="fas fa-plus-square"></i></div>' + celula.format(n)
+        + f'<div class="col-md-5"><div class="form-group"><textarea class="form-control form-control-sm label-custom" '
+          f'rows="1" disabled="">{descricao}</textarea></div></div>'
+        + "".join(celula.format(v) for v in (qtd, un, unit, valor)) + "</div>"
+        + f'<div class="collapse" id="produto{n}"><div class="card card-body"><div class="row">'
+        + _grupo("Código NCM", ncm) + _grupo("Valor do Desconto", desconto) + _grupo("Valor Total do Frete", "")
+        + "</div></div></div>")
+
+
+# Página da consulta completa pela chave (estrutura igual à da SEFAZ-PE; dados fictícios)
+PAGINA_CONSULTA = (
+    '<html><head><title>DOCUMENTO AUXILIAR DA NOTA FISCAL DE CONSUMIDOR ELETRÔNICA</title></head><body><form>'
+    + _grupo("Chave de Acesso", OFFLINE) + _grupo("Número", "123")
+    + '</form><div id="conteudo"><div id="nfce"><div class="card-header">Dados da NFC-e</div>'
+    + _grupo("Data de Emissão", "28/10/2026 11:45:57") + _grupo("Valor Total da Nota Fiscal", "1.020,50")
+    + _grupo("CNPJ / CPF", "00.000.000/0001-91") + _grupo("Nome / Razão Social", "MERCADO EXEMPLO LTDA", True)
+    + '<div class="card-header"> Situação Atual: &nbsp;AUTORIZADA (Ambiente de Autorização: Produção) </div></div>'
+    + '<div id="emitente-conteudo">' + _grupo("Nome / Razão Social", "MERCADO EXEMPLO LTDA", True)
+    + _grupo("Nome Fantasia", "SUPER EXEMPLO", True) + _grupo("CNPJ / CPF", "00.000.000/0001-91") + "</div>"
+    + '<div id="produtos"><div class="card-header">Dados dos Produtos e Serviços</div><form>'
+    + _produto(1, "CERVEJA LATA 473ML", "10,0000", "UN", "6,19", "61,90", "22030000")
+    + _produto(2, "BANANA PRATA kg", "0,9400", "KG", "5,99", "5,63", "08039000")
+    + _produto(3, "TV 50 POL", "1,0000", "UN", "1.000,00", "1.000,00", "85287200", desconto="47,03")
+    + '</form></div><div id="totais">' + _grupo("Valor Total da NFe", "1.020,50") + "</div></div></body></html>")
+
+
+def test_le_a_pagina_da_consulta_pela_chave():
+    from cupom_fiscal import ler_pagina_consulta
+    nota = ler_pagina_consulta(PAGINA_CONSULTA)
+    assert {k: nota[k] for k in ("chave", "data", "estabelecimento", "cnpj", "total")} == {
+        "chave": OFFLINE, "data": "2026-10-28", "estabelecimento": "SUPER EXEMPLO", "cnpj": "00000000000191",
+        "total": 1020.50}
+    itens = nota["itens"]
+    assert itens["descricao"].tolist() == ["CERVEJA LATA 473ML", "BANANA PRATA kg", "TV 50 POL"]
+    assert itens["ncm"].tolist() == ["22030000", "08039000", "85287200"]
+    assert itens["quantidade"].tolist() == [10.0, 0.94, 1.0] and itens["unidade"].tolist() == ["UN", "KG", "UN"]
+    assert itens["valor"].tolist() == [61.90, 5.63, 952.97]          # desconto do item já abatido
+    assert round(itens["valor"].sum(), 2) == nota["total"]
+
+
+def test_pagina_errada_ou_nota_cancelada_nao_vira_cupom():
+    from cupom_fiscal import ler_pagina_consulta
+    with pytest.raises(ValueError, match="não é o resultado"):
+        ler_pagina_consulta("<html><body><h1>Consulta NFC-e</h1></body></html>")
+    with pytest.raises(ValueError, match="cancelada"):
+        ler_pagina_consulta(PAGINA_CONSULTA.replace("AUTORIZADA (", "CANCELADA ("))

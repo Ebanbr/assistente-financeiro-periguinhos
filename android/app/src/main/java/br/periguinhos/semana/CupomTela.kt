@@ -120,6 +120,10 @@ fun CupomTela(
                             if (status == "ok") " · ${itens.size} itens" else "",
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    val desconto = leitura.optDouble("desconto", 0.0)
+                    if (desconto >= 0.01) {
+                        Text("Desconto de ${reais(desconto)} já abatido dos itens", color = CorPositiva, fontSize = 13.sp)
+                    }
                 }
             }
         }

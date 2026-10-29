@@ -276,3 +276,22 @@ def test_pagina_errada_ou_nota_cancelada_nao_vira_cupom():
         ler_pagina_consulta("<html><body><h1>Consulta NFC-e</h1></body></html>")
     with pytest.raises(ValueError, match="cancelada"):
         ler_pagina_consulta(PAGINA_CONSULTA.replace("AUTORIZADA (", "CANCELADA ("))
+
+
+def test_desconto_do_item_fica_guardado_e_abatido():
+    nota = ler_nfce(XML)
+    assert nota["desconto"] == 0.50 and round(nota["itens"]["desconto"].sum(), 2) == 0.50
+    assert round(nota["itens"]["valor"].sum(), 2) == nota["total"]
+
+
+def test_desconto_no_fim_da_compra_e_rateado_entre_os_itens():
+    from cupom_fiscal import ratear_ao_total
+    # "com CPF fica mais barato": itens com preço cheio, total da nota menor e sem vDesc nos itens
+    itens = pd.DataFrame({"item": [1, 2, 3], "valor": [6.19, 10.00, 3.81], "desconto": [0.0, 0.0, 0.0]})
+    acertado = ratear_ao_total(itens, 19.00)
+    assert round(acertado["valor"].sum(), 2) == 19.00
+    assert round(acertado["desconto"].sum(), 2) == 1.00
+    assert (acertado["valor"] < itens["valor"]).all()                 # todo item ficou um pouco mais barato
+    assert acertado["valor"].tolist() == [5.89, 9.49, 3.62]          # o centavo que sobra fica no maior
+    assert ratear_ao_total(itens, 20.00)["valor"].tolist() == [6.19, 10.00, 3.81]   # bateu: nada muda
+    assert ratear_ao_total(itens, 5.00)["valor"].tolist() == [6.19, 10.00, 3.81]    # diferença absurda: não mexe

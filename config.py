@@ -137,7 +137,8 @@ COLUNAS_CUPONS_PENDENTES = ["id", "chave", "link", "data", "estabelecimento", "v
 ITENS_CUPOM_FILE = DATA_DIR / "itens_cupom.parquet"
 COLUNAS_ITENS_CUPOM = [
     "id", "chave", "data", "estabelecimento", "cnpj", "item", "descricao", "ncm",
-    "quantidade", "unidade", "valor", "categoria", "despesa_id", "criado_em"
+    "quantidade", "unidade", "valor", "categoria", "despesa_id", "criado_em",
+    "desconto", "link",   # desconto do item já abatido em "valor" (ex.: preço com CPF); link do QR para rever a nota
 ]
 
 # Mapeamentos padrão iniciais

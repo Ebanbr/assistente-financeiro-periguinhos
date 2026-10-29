@@ -303,6 +303,7 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
     pend = _linha_pendente(cupom["chave"], despesas)
     return {
         "status": "ok", "chave": cupom["chave"], "data": cupom["data"], "total": cupom["total"],
+        "desconto": float(cupom.get("desconto") or 0),
         "cnpj": cupom["cnpj"],
         "estabelecimento": nome_lembrado(cupom["cnpj"], hist) or cupom["estabelecimento"].title(),
         "forma_pagamento": (_texto(pend["forma_pagamento"]) if pend is not None else cupom["forma_pagamento"]),
@@ -386,7 +387,8 @@ def lancar_cupom(planilha, pedido, usuario, leitor=ler_cupom):
     novos = itens.assign(
         id=[gerar_id() for _ in range(len(itens))], chave=chave, data=dia, estabelecimento=estab,
         cnpj=cupom["cnpj"], despesa_id=itens["categoria"].map(ids_cat), criado_em=criado,
-    )[COLUNAS_ITENS_CUPOM]
+        link=cupom.get("link") or _texto(pedido.get("link")),
+    ).reindex(columns=COLUNAS_ITENS_CUPOM, fill_value=0.0)
     planilha.excluir("itens_cupom", "chave", [chave])   # relançamento troca os itens antigos
     planilha.anexar("itens_cupom", novos.to_dict("records"))
     _LIDOS.pop(chave, None)

@@ -170,7 +170,7 @@ def ler_cupom(link):
     link = validar_link(link)
     xml_texto = baixar_xml(link)
     try:
-        return ler_nfce(xml_texto)
+        return {**ler_nfce(xml_texto), "link": link}
     except ValueError:
         dados = dados_do_qr_offline(link)
         if dados and _codigo_erro(xml_texto) == "100":
@@ -254,6 +254,37 @@ def _num(no, caminho):
         return 0.0
 
 
+_COLUNAS_ITENS = ["item", "descricao", "ncm", "quantidade", "unidade", "valor", "desconto"]
+
+
+def ratear_ao_total(itens, total, limite=0.5):
+    """Acerta os itens ao total da nota quando a soma não bate.
+
+    O desconto do item (ex.: "preço com CPF") já vem abatido em ``valor``. Se ainda sobrar diferença
+    (desconto dado no fim da compra e não distribuído pelo caixa, acréscimo…), ela é rateada entre os
+    itens proporcionalmente ao valor e somada à coluna ``desconto`` (desconto positivo = abatimento).
+    Diferença maior que ``limite`` (50% da soma) não é rateada: aí a nota está estranha e o aviso de
+    "soma não bate" continua aparecendo.
+    """
+    itens = itens.copy()
+    if "desconto" not in itens.columns:
+        itens["desconto"] = 0.0
+    itens["desconto"] = pd.to_numeric(itens["desconto"], errors="coerce").fillna(0.0)
+    soma = round(float(itens["valor"].sum()), 2)
+    diferenca = round(float(total) - soma, 2)
+    if itens.empty or not diferenca or soma <= 0 or abs(diferenca) > soma * limite:
+        return itens
+    centavos = round(diferenca * 100)
+    partes = [int(centavos * v / soma) for v in itens["valor"]]          # trunca em direção a zero
+    sobra = centavos - sum(partes)
+    maior = int(itens["valor"].to_numpy().argmax())
+    partes[maior] += sobra                                               # o arredondamento fica no maior item
+    ajuste = pd.Series(partes, index=itens.index) / 100
+    itens["valor"] = (itens["valor"] + ajuste).round(2)
+    itens["desconto"] = (itens["desconto"] - ajuste).round(2)
+    return itens
+
+
 def ler_nfce(xml_texto):
     """XML da NFC-e → {chave, data, estabelecimento, cnpj, total, forma_pagamento, itens(DataFrame)}."""
     try:
@@ -281,20 +312,24 @@ def ler_nfce(xml_texto):
             "quantidade": _num(prod, "n:qCom"),
             "unidade": _txt(prod, "n:uCom"),
             "valor": round(liquido, 2),
+            "desconto": round(_num(prod, "n:vDesc"), 2),
         })
 
     pagamentos = [(_txt(d, "n:tPag"), _num(d, "n:vPag")) for d in inf.findall("n:pag/n:detPag", NS)]
     tpag = max(pagamentos, key=lambda p: p[1])[0] if pagamentos else ""
 
     chave = (inf.get("Id") or "").removeprefix("NFe")
+    total = round(_num(inf, "n:total/n:ICMSTot/n:vNF"), 2)
+    itens = ratear_ao_total(pd.DataFrame(itens, columns=_COLUNAS_ITENS), total)
     return {
         "chave": chave,
         "data": data_hora[:10],
         "estabelecimento": " ".join(nome.split()),
         "cnpj": _txt(emit, "n:CNPJ"),
-        "total": round(_num(inf, "n:total/n:ICMSTot/n:vNF"), 2),
+        "total": total,
+        "desconto": round(float(itens["desconto"].sum()), 2),
         "forma_pagamento": _TPAG_FORMA.get(tpag),
-        "itens": pd.DataFrame(itens, columns=["item", "descricao", "ncm", "quantidade", "unidade", "valor"]),
+        "itens": itens,
     }
 
 
@@ -409,19 +444,23 @@ def ler_pagina_consulta(html):
             "quantidade": _num_br(qtd),
             "unidade": unidade,
             "valor": round(liquido, 2),
+            "desconto": round(_num_br(_valor(detalhe, "Valor do Desconto")), 2),
         })
     if not itens:
         raise ValueError("Não achei os produtos nessa página.")
 
     nome = _valor(emit, "Nome Fantasia") or _valor(emit, "Nome / Razão Social")
+    total = round(_num_br(_valor(nfce, "Valor Total da Nota Fiscal")), 2)
+    itens = ratear_ao_total(pd.DataFrame(itens, columns=_COLUNAS_ITENS), total)
     return {
         "chave": chave,
         "data": f"{m.group(3)}-{m.group(2)}-{m.group(1)}",
         "estabelecimento": nome,
         "cnpj": re.sub(r"\D", "", _valor(emit, "CNPJ / CPF")),
-        "total": round(_num_br(_valor(nfce, "Valor Total da Nota Fiscal")), 2),
+        "total": total,
+        "desconto": round(float(itens["desconto"].sum()), 2),
         "forma_pagamento": None,
-        "itens": pd.DataFrame(itens, columns=["item", "descricao", "ncm", "quantidade", "unidade", "valor"]),
+        "itens": itens,
     }
 
 

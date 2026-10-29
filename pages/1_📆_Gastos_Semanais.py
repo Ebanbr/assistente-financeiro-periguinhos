@@ -292,7 +292,9 @@ with tab_atual:
             data_cupom = pd.to_datetime(cupom["data"], errors="coerce")
             st.markdown(
                 f"{data_cupom.strftime('%d/%m/%Y') if pd.notna(data_cupom) else '—'} · "
-                f"{len(cupom['itens'])} item(ns) · total **{formatar_moeda(cupom['total'])}**")
+                f"{len(cupom['itens'])} item(ns) · total **{formatar_moeda(cupom['total'])}**"
+                + (f" · desconto {formatar_moeda(cupom['desconto'])} (já abatido dos itens)"
+                   if cupom.get("desconto", 0) >= 0.01 else ""))
             despesas_atual = ler_csv(DESPESAS_FILE)
             pend = linhas_pendentes(cupom["chave"], despesas_atual)
             linha_pend = despesas_atual[pend].iloc[0] if pend.any() else None
@@ -389,7 +391,8 @@ with tab_atual:
                                 chave=cupom["chave"], data=data_cupom.strftime("%Y-%m-%d"),
                                 estabelecimento=estab_cupom, cnpj=cupom["cnpj"],
                                 despesa_id=itens_ed["categoria"].map(ids_cat), criado_em=criado,
-                            )[COLUNAS_ITENS_CUPOM]
+                                link=cupom.get("link", ""),
+                            ).reindex(columns=COLUNAS_ITENS_CUPOM, fill_value=0.0)
                             # relançamento (linhas excluídas antes): troca os itens antigos do mesmo cupom
                             base_itens = df_itens_hist
                             if not base_itens.empty and "chave" in base_itens.columns:

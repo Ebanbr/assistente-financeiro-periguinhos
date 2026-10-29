@@ -6,7 +6,7 @@ from cupom_fiscal import (
     emitida_offline, ja_lancado, ler_nfce, link_do_qr, nome_lembrado, sugerir_categorias, validar_link,
 )
 
-CHAVE = "2" * 44
+CHAVE = "26" + "2" * 42          # 26 = Pernambuco (código IBGE no começo da chave)
 LINK = f"http://nfce.sefaz.pe.gov.br/nfce/consulta?p={CHAVE}|2|1|2|ABCDEF"
 
 
@@ -134,7 +134,7 @@ def test_le_o_link_de_uma_foto_do_qr_code():
     assert link_do_qr(vazio) is None
 
 
-OFFLINE = "2" * 2 + "2610" + "0" * 14 + "65" + "0" * 12 + "9" + "1" * 9   # AAMM=2610, tpEmis=9
+OFFLINE = "26" + "2610" + "0" * 14 + "65" + "0" * 12 + "9" + "1" * 9   # AAMM=2610, tpEmis=9
 
 
 def test_qr_offline_ja_traz_data_total_e_cnpj():
@@ -303,7 +303,8 @@ CHAVE_PB = "25" + "2610" + "1" * 14 + "65" + "0" * 12 + "1" + "2" * 9          #
 def test_cupom_da_paraiba_entra_com_total_digitado_e_link_guardado(monkeypatch):
     import cupom_fiscal
     from cupom_fiscal import NotaPendente, ler_cupom, uf_do_link
-    monkeypatch.setattr(cupom_fiscal, "baixar_xml", lambda link: pytest.fail("PB não devolve o XML pelo link"))
+    # a SEFAZ-PB responde uma página com o formulário e o reCAPTCHA, não o XML
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml", lambda link: "<html><body>Consulta da NFC-e</body></html>")
     link = f"http://www.sefaz.pb.gov.br/nfce?p={CHAVE_PB}|2|1|1|ABCDEF0123"
     assert uf_do_link(link) == "PB" and uf_do_link(LINK) == "PE"
     with pytest.raises(NotaPendente) as erro:
@@ -318,6 +319,22 @@ def test_cupom_da_paraiba_entra_com_total_digitado_e_link_guardado(monkeypatch):
     assert erro.value.dados["total"] == 45.90 and erro.value.dados["data"] == "2026-10-30"
 
 
-def test_outros_estados_continuam_recusados():
-    with pytest.raises(ValueError, match="Pernambuco e da Paraíba"):
-        validar_link(f"http://www.sefaz.rn.gov.br/nfce?p={CHAVE}|2|1|1|AB")
+def test_qualquer_estado_com_link_de_sefaz(monkeypatch):
+    import cupom_fiscal
+    from cupom_fiscal import NotaPendente, ler_cupom, uf_do_link
+    chave_sp = "35" + CHAVE[2:]
+    link_sp = f"https://www.nfce.fazenda.sp.gov.br/qrcode?p={chave_sp}|2|1|1|AB"
+    assert uf_do_link(link_sp) == "SP"
+    # SEFAZ que entrega o XML pelo link: lê normal, com os itens
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml", lambda link: XML)
+    assert len(ler_cupom(link_sp)["itens"]) > 0
+    # SEFAZ que não entrega (fora do ar, página…): entra com o total digitado
+    def fora_do_ar(link):
+        raise ConnectionError("sem resposta")
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml", fora_do_ar)
+    with pytest.raises(NotaPendente, match="São Paulo"):
+        ler_cupom(link_sp)
+    with pytest.raises(ValueError, match="não é de uma SEFAZ"):
+        validar_link(f"http://exemplo.com/nfce?p={CHAVE}|2|1|1|AB")
+    with pytest.raises(ValueError, match="nenhum estado"):
+        validar_link(f"http://www.sefaz.xx.gov.br/nfce?p={'99' + CHAVE[2:]}|2|1|1|AB")

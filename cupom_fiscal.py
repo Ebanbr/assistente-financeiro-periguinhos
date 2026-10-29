@@ -12,14 +12,24 @@ import pandas as pd
 from expense_defaults import categoria_do_local
 
 NS = {"n": "http://www.portalfiscal.inf.br/nfe"}
-# Estados aceitos (host do link do QR → UF). PE devolve o XML direto pelo link; PB só mostra a nota
-# depois do "Consultar" (reCAPTCHA) no site, então por enquanto a nota de PB entra com o total digitado.
-HOSTS_UF = {
-    "nfce.sefaz.pe.gov.br": "PE",
-    "www.sefaz.pb.gov.br": "PB", "sefaz.pb.gov.br": "PB",
-    "www.receita.pb.gov.br": "PB", "receita.pb.gov.br": "PB",   # endereço antigo da PB
+# Qualquer estado: o link do QR tem que ser de um órgão público (.gov.br) e trazer a chave de 44 dígitos.
+# A UF sai dos 2 primeiros dígitos da chave (código IBGE). PE devolve o XML direto pelo link; nos outros
+# estados o app tenta o mesmo e, se a SEFAZ de lá não entregar a nota (página, reCAPTCHA…), o cupom entra
+# com o total digitado e o link guardado para buscar os itens depois.
+UF_IBGE = {
+    "11": "RO", "12": "AC", "13": "AM", "14": "RR", "15": "PA", "16": "AP", "17": "TO",
+    "21": "MA", "22": "PI", "23": "CE", "24": "RN", "25": "PB", "26": "PE", "27": "AL", "28": "SE", "29": "BA",
+    "31": "MG", "32": "ES", "33": "RJ", "35": "SP", "41": "PR", "42": "SC", "43": "RS",
+    "50": "MS", "51": "MT", "52": "GO", "53": "DF",
 }
-HOSTS_PERMITIDOS = tuple(HOSTS_UF)
+NOME_UF = {
+    "RO": "Rondônia", "AC": "Acre", "AM": "Amazonas", "RR": "Roraima", "PA": "Pará", "AP": "Amapá",
+    "TO": "Tocantins", "MA": "Maranhão", "PI": "Piauí", "CE": "Ceará", "RN": "Rio Grande do Norte",
+    "PB": "Paraíba", "PE": "Pernambuco", "AL": "Alagoas", "SE": "Sergipe", "BA": "Bahia",
+    "MG": "Minas Gerais", "ES": "Espírito Santo", "RJ": "Rio de Janeiro", "SP": "São Paulo",
+    "PR": "Paraná", "SC": "Santa Catarina", "RS": "Rio Grande do Sul", "MS": "Mato Grosso do Sul",
+    "MT": "Mato Grosso", "GO": "Goiás", "DF": "Distrito Federal",
+}
 
 CATEGORIA_PADRAO_CUPOM = "🛒 Supermercado"
 
@@ -71,17 +81,20 @@ def validar_link(link):
         raise ValueError("Cole o link do QR Code do cupom.")
     if not re.match(r"^https?://", link, re.I):
         link = "http://" + link
-    partes = urlsplit(link)
-    if (partes.hostname or "").lower() not in HOSTS_PERMITIDOS:
-        raise ValueError("Por enquanto só leio cupons de Pernambuco e da Paraíba.")
-    if not re.search(r"[?&]p=\d{44}\|", link):
+    host = (urlsplit(link).hostname or "").lower()
+    if not host.endswith(".gov.br"):
+        raise ValueError("Esse link não é de uma SEFAZ (o endereço do QR Code do cupom termina em .gov.br).")
+    m = re.search(r"[?&]p=(\d{44})\|", link)
+    if not m:
         raise ValueError("Esse link não parece ser de um QR Code de NFC-e (falta a chave de 44 dígitos).")
+    if m.group(1)[:2] not in UF_IBGE:
+        raise ValueError("A chave desse cupom não é de nenhum estado conhecido.")
     return link
 
 
 def uf_do_link(link):
-    """UF do cupom pelo endereço do QR ("PE", "PB") ou None."""
-    return HOSTS_UF.get((urlsplit(validar_link(link)).hostname or "").lower())
+    """UF do cupom pela chave (código IBGE nos 2 primeiros dígitos): "PE", "PB", "SP"…"""
+    return UF_IBGE.get(chave_do_link(validar_link(link))[:2])
 
 
 def chave_do_link(link):
@@ -182,10 +195,15 @@ def ler_cupom(link):
     """Baixa e lê a nota. Nota que a SEFAZ ainda não tem (236, ou offline ainda não enviada)
     → NotaPendente; offline já autorizada mas sem itens pelo link (erro 100) → NotaSemItens."""
     link = validar_link(link)
-    if uf_do_link(link) == "PB":
-        raise NotaPendente({**dados_do_qr(link), "uf": "PB"}, mensagem=(
-            "Cupom da Paraíba: a SEFAZ-PB só mostra os itens depois do \"Não sou um robô\" no site dela, "
-            "e o app ainda não sabe ler essa página."))
+    uf = uf_do_link(link)
+    if uf != "PE":
+        # outra SEFAZ: se ela entregar o XML pelo link (como PE), lê normal; se não, entra com o total
+        try:
+            return {**ler_nfce(baixar_xml(link)), "link": link}
+        except Exception:
+            raise NotaPendente({**dados_do_qr(link), "uf": uf}, mensagem=(
+                f"Cupom de {uf} ({NOME_UF[uf]}): a SEFAZ de lá não entrega os itens pelo QR Code (ou o app ainda não "
+                "sabe ler a página dela)."))
     xml_texto = baixar_xml(link)
     try:
         return {**ler_nfce(xml_texto), "link": link}

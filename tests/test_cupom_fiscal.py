@@ -295,3 +295,29 @@ def test_desconto_no_fim_da_compra_e_rateado_entre_os_itens():
     assert acertado["valor"].tolist() == [5.89, 9.49, 3.62]          # o centavo que sobra fica no maior
     assert ratear_ao_total(itens, 20.00)["valor"].tolist() == [6.19, 10.00, 3.81]   # bateu: nada muda
     assert ratear_ao_total(itens, 5.00)["valor"].tolist() == [6.19, 10.00, 3.81]    # diferença absurda: não mexe
+
+
+CHAVE_PB = "25" + "2610" + "1" * 14 + "65" + "0" * 12 + "1" + "2" * 9          # UF 25 = Paraíba, nota normal
+
+
+def test_cupom_da_paraiba_entra_com_total_digitado_e_link_guardado(monkeypatch):
+    import cupom_fiscal
+    from cupom_fiscal import NotaPendente, ler_cupom, uf_do_link
+    monkeypatch.setattr(cupom_fiscal, "baixar_xml", lambda link: pytest.fail("PB não devolve o XML pelo link"))
+    link = f"http://www.sefaz.pb.gov.br/nfce?p={CHAVE_PB}|2|1|1|ABCDEF0123"
+    assert uf_do_link(link) == "PB" and uf_do_link(LINK) == "PE"
+    with pytest.raises(NotaPendente) as erro:
+        ler_cupom(link)
+    dados = erro.value.dados
+    assert (dados["chave"], dados["uf"], dados["total"], dados["data"]) == (CHAVE_PB, "PB", None, None)
+    assert "Paraíba" in str(erro.value) and dados["link"].startswith("http://www.sefaz.pb.gov.br/nfce?p=")
+    # nota offline da PB: o QR já traz dia e valor
+    offline = CHAVE_PB[:34] + "9" + CHAVE_PB[35:]
+    with pytest.raises(NotaPendente) as erro:
+        ler_cupom(f"https://www.sefaz.pb.gov.br/nfce?p={offline}|2|1|30|45.90|abc|1|HASH")
+    assert erro.value.dados["total"] == 45.90 and erro.value.dados["data"] == "2026-10-30"
+
+
+def test_outros_estados_continuam_recusados():
+    with pytest.raises(ValueError, match="Pernambuco e da Paraíba"):
+        validar_link(f"http://www.sefaz.rn.gov.br/nfce?p={CHAVE}|2|1|1|AB")

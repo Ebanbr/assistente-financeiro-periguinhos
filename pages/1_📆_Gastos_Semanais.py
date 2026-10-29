@@ -198,8 +198,9 @@ with tab_atual:
                             st.session_state.pop("cupom_pendente", None)
                         except NotaSemItens:
                             st.session_state[f"sem_itens_{cp['chave']}"] = True
-                        except NotaPendente:
-                            st.info("Ainda não chegou na SEFAZ. Tente mais tarde — o mercado tem até 24 h.")
+                        except NotaPendente as e:
+                            st.info(str(e) if e.dados.get("uf") == "PB"
+                                    else "Ainda não chegou na SEFAZ. Tente mais tarde — o mercado tem até 24 h.")
                         except ValueError as e:
                             mensagem_erro(str(e))
                         except Exception:
@@ -277,7 +278,7 @@ with tab_atual:
                 st.session_state.pop("cupom_pendente", None)
             except NotaPendente as e:
                 st.session_state.pop("cupom_lido", None)
-                st.session_state["cupom_pendente"] = e.dados
+                st.session_state["cupom_pendente"] = {**e.dados, "mensagem": str(e)}
             except ValueError as e:
                 st.session_state.pop("cupom_lido", None)
                 mensagem_erro(str(e))
@@ -422,9 +423,9 @@ with tab_atual:
                 total_p = pendente["total"]
                 if total_p is None:
                     # nota normal que a SEFAZ ainda não liberou: o QR não traz total nem data
-                    st.warning("A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas "
-                               "depois da compra). Lance agora com o total do cupom e, mais tarde, toque em "
-                               "\"🔄 Já chegou?\" para trocar pela divisão por categoria.")
+                    st.warning(pendente.get("mensagem", "A SEFAZ ainda não liberou essa nota para consulta.")
+                               + " Lance agora com o total do cupom e, mais tarde, toque em \"🔄 Já chegou?\" "
+                               "para trocar pela divisão por categoria.")
                     pt1, pt2 = st.columns(2)
                     with pt1:
                         total_p = st.number_input("Total do cupom (R$):", min_value=0.0, step=0.01, format="%.2f",

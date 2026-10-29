@@ -142,9 +142,8 @@ fun CupomTela(
                     Text(if (totalNoQr) "A SEFAZ ainda não recebeu essa nota (o caixa estava offline). Lance agora só " +
                         "com o total e, quando ela chegar (até 24 h), toque em \"Já chegou?\" na semana para dividir " +
                         "por categoria."
-                    else "A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas depois da " +
-                        "compra). Lance agora com o total do cupom e, mais tarde, toque em \"Já chegou?\" na semana " +
-                        "para dividir por categoria.")
+                    else leitura.optString("mensagem") + " Lance agora com o total do cupom e, mais tarde, toque " +
+                        "em \"Já chegou?\" na semana para dividir por categoria.")
                 }
             }
             "sem_itens" -> item {

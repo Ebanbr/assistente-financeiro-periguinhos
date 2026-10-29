@@ -12,7 +12,14 @@ import pandas as pd
 from expense_defaults import categoria_do_local
 
 NS = {"n": "http://www.portalfiscal.inf.br/nfe"}
-HOSTS_PERMITIDOS = ("nfce.sefaz.pe.gov.br",)
+# Estados aceitos (host do link do QR → UF). PE devolve o XML direto pelo link; PB só mostra a nota
+# depois do "Consultar" (reCAPTCHA) no site, então por enquanto a nota de PB entra com o total digitado.
+HOSTS_UF = {
+    "nfce.sefaz.pe.gov.br": "PE",
+    "www.sefaz.pb.gov.br": "PB", "sefaz.pb.gov.br": "PB",
+    "www.receita.pb.gov.br": "PB", "receita.pb.gov.br": "PB",   # endereço antigo da PB
+}
+HOSTS_PERMITIDOS = tuple(HOSTS_UF)
 
 CATEGORIA_PADRAO_CUPOM = "🛒 Supermercado"
 
@@ -66,10 +73,15 @@ def validar_link(link):
         link = "http://" + link
     partes = urlsplit(link)
     if (partes.hostname or "").lower() not in HOSTS_PERMITIDOS:
-        raise ValueError("Por enquanto só leio cupons da SEFAZ-PE (nfce.sefaz.pe.gov.br).")
+        raise ValueError("Por enquanto só leio cupons de Pernambuco e da Paraíba.")
     if not re.search(r"[?&]p=\d{44}\|", link):
         raise ValueError("Esse link não parece ser de um QR Code de NFC-e (falta a chave de 44 dígitos).")
     return link
+
+
+def uf_do_link(link):
+    """UF do cupom pelo endereço do QR ("PE", "PB") ou None."""
+    return HOSTS_UF.get((urlsplit(validar_link(link)).hostname or "").lower())
 
 
 def chave_do_link(link):
@@ -109,8 +121,10 @@ class NotaPendente(ValueError):
     e quem lança informa o total.
     """
 
-    def __init__(self, dados):
-        if dados.get("total") is None:
+    def __init__(self, dados, mensagem=None):
+        if mensagem:
+            texto = mensagem
+        elif dados.get("total") is None:
             texto = ("A SEFAZ ainda não liberou essa nota para consulta (às vezes leva algumas horas "
                      "depois da compra).")
         else:
@@ -168,6 +182,10 @@ def ler_cupom(link):
     """Baixa e lê a nota. Nota que a SEFAZ ainda não tem (236, ou offline ainda não enviada)
     → NotaPendente; offline já autorizada mas sem itens pelo link (erro 100) → NotaSemItens."""
     link = validar_link(link)
+    if uf_do_link(link) == "PB":
+        raise NotaPendente({**dados_do_qr(link), "uf": "PB"}, mensagem=(
+            "Cupom da Paraíba: a SEFAZ-PB só mostra os itens depois do \"Não sou um robô\" no site dela, "
+            "e o app ainda não sabe ler essa página."))
     xml_texto = baixar_xml(link)
     try:
         return {**ler_nfce(xml_texto), "link": link}

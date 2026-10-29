@@ -111,7 +111,8 @@ fun SemanaTela(
                 val leitura = api.lerCupom(link)
                 when {
                     esperado != null && leitura.optString("status") == "pendente" ->
-                        Toast.makeText(contexto, "A SEFAZ ainda não recebeu essa nota.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(contexto, leitura.optString("mensagem").ifBlank { "A SEFAZ ainda não recebeu essa nota." },
+                            Toast.LENGTH_LONG).show()
                     esperado != null && leitura.optString("status") == "sem_itens" -> semItens = esperado
                     else -> aoCupom(leitura, link)
                 }

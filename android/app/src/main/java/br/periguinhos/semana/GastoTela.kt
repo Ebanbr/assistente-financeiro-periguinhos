@@ -121,6 +121,14 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
         OutlinedTextField(
             valor, { valor = it }, label = { Text("Valor (R$)") }, singleLine = true, placeholder = { Text("0,00") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            // o teclado numérico do celular não tem "-": o ± troca o sinal (estorno/troca entra negativo)
+            trailingIcon = {
+                TextButton(onClick = {
+                    val v = valor.trim()
+                    valor = if (v.startsWith("-")) v.removePrefix("-") else "-$v"
+                }) { Text("±", fontSize = 20.sp) }
+            },
+            supportingText = { Text("Estorno ou troca: toque em ± para ficar negativo.") },
             modifier = Modifier.fillMaxWidth(),
         )
         CampoCategoria("Categoria", categoria, opcoes.categorias, { categoria = it })

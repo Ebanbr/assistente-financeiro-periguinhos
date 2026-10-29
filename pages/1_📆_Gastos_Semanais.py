@@ -141,16 +141,16 @@ with tab_atual:
                 g_pag = st.selectbox("Forma de pagamento:", ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"])
                 g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
             with cg3:
-                g_valor = st.number_input("Valor (R$):", min_value=0.0, value=None,
-                                          step=None, placeholder="0,00", format="%.2f")
+                g_valor = st.number_input("Valor (R$):", value=None, step=None, placeholder="0,00", format="%.2f",
+                                          help="Estorno ou troca: valor negativo (ex.: -60,38), na categoria da compra.")
 
             if st.form_submit_button("💾 Lançar gasto", type="primary", use_container_width=True):
                 if not g_desc.strip():
                     mensagem_erro("Informe a descrição.")
                 elif not g_cat:
                     mensagem_erro("Escolha a categoria.")
-                elif not g_valor or g_valor <= 0:
-                    mensagem_erro("Informe um valor maior que zero.")
+                elif not g_valor:
+                    mensagem_erro("Informe o valor (estorno entra negativo).")
                 else:
                     nova = pd.DataFrame([{
                         "id": gerar_id(), "data": g_data.strftime("%Y-%m-%d"),
@@ -889,7 +889,8 @@ with tab_atual:
                     "data":            st.column_config.DateColumn("Data", format="DD/MM/YYYY", width="small"),
                     "descricao":       st.column_config.TextColumn("Descrição", width="large"),
                     "categoria":       st.column_config.SelectboxColumn("Categoria", options=CATEGORIAS_DESPESA),
-                    "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.0),
+                    "valor":           st.column_config.NumberColumn("Valor", format="R$ %.2f",
+                                                                     help="Estorno ou troca: valor negativo."),
                     "forma_pagamento": st.column_config.SelectboxColumn("Forma", options=["💳 Débito", "📱 PIX", "💵 Dinheiro", "💳 Crédito"]),
                     "banco":           st.column_config.SelectboxColumn("Cartão", options=["", "C6 BRU", "C6 PRI", "Nubank"]),
                     "id":              st.column_config.TextColumn("ID", disabled=True, width="small"),

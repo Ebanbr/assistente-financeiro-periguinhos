@@ -90,13 +90,20 @@ def projetar_parcelas(df, ano, mes, cartao, fechamentos=None, fonte_semanal="Sem
     if not data_compra.ne("").any():
         obs = d.get("observacao", pd.Series("", index=d.index)).astype(str)
         data_compra = obs.str.extract(r"Compra em\s+(.+)$", expand=False).fillna("")
+    # A chave não usa o valor: o cartão põe o centavo que sobra na 1ª parcela (125,00 e depois
+    # 124,99), e o valor diferente fazia a mesma compra ser projetada duas vezes. Usa o mês em que
+    # a compra começou a ser cobrada (mês da fatura − parcela atual + 1).
+    origem = d.apply(lambda r: (r["_data"] - pd.DateOffset(months=int(r["_pa"]) - 1)).strftime("%Y-%m")
+                     if pd.notna(r["_pa"]) and pd.notna(r["_data"]) else "", axis=1)
     d["_chave_compra"] = (
         d.get("descricao", pd.Series("", index=d.index)).astype(str).str.strip().str.casefold()
         + "|" + data_compra
-        + "|" + d["_valor"].round(2).astype(str)
         + "|" + d["_pt"].astype(str)
+        + "|" + origem
     )
-    d = d.sort_values("_data").drop_duplicates("_chave_compra", keep="last")
+    # vale a ocorrência mais recente de cada compra (a parcela mais nova, já sem o centavo da 1ª);
+    # duas compras iguais na mesma fatura (mesma loja, dia e nº de parcelas) continuam as duas
+    d = d[d["_data"] == d.groupby("_chave_compra")["_data"].transform("max")].copy()
     d["_offset"] = d["_data"].apply(lambda x: meses_entre(x, alvo))
     d["parcela_projetada"] = d["_pa"] + d["_offset"]
     itens = d[(d["_offset"] > 0) & (d["parcela_projetada"] <= d["_pt"])].copy()

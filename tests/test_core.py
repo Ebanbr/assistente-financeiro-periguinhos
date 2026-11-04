@@ -336,3 +336,21 @@ def test_parcela_lancada_a_mao_entra_na_projecao_ate_a_fatura_chegar():
              "valor": 140.23, "parcela": "1/2"}
     df2 = pd.concat([df, pd.DataFrame([banco])], ignore_index=True)
     assert projetar_parcelas(df2, 2027, 1, "C6 BRU")["total"] == 140.23
+
+
+def test_projecao_nao_conta_duas_vezes_quando_a_1a_parcela_tem_o_centavo_a_mais():
+    from fatura_projection import projetar_parcelas
+    base = {"fonte": "C6 Bank", "banco": "C6 BRU", "forma_pagamento": "💳 Crédito", "descricao": "CONSTANCE",
+            "data_compra": "11/09/2026", "observacao": ""}
+    df = pd.DataFrame([
+        {**base, "id": "a", "data": "2026-10-01", "valor": 125.00, "parcela": "1/4"},   # centavo a mais na 1ª
+        {**base, "id": "b", "data": "2026-11-01", "valor": 124.99, "parcela": "2/4"},
+        # duas compras iguais na mesma fatura continuam sendo duas
+        {**base, "id": "c", "data": "2026-11-01", "valor": 50.00, "parcela": "1/2", "descricao": "LOJA X",
+         "data_compra": "20/10/2026"},
+        {**base, "id": "d", "data": "2026-11-01", "valor": 50.00, "parcela": "1/2", "descricao": "LOJA X",
+         "data_compra": "20/10/2026"},
+    ])
+    dez = projetar_parcelas(df, 2026, 12, "C6 BRU")
+    assert round(dez["total"], 2) == 124.99 + 100.00
+    assert sorted(dez["itens"]["parcela_projetada"].astype(int)) == [2, 2, 3]

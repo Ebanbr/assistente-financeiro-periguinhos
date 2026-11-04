@@ -531,6 +531,60 @@ def agrupar_por_categoria(itens, total):
     return soma
 
 
+def trocar_categoria_itens(chave, novas, despesas, itens, novo_id):
+    """Troca a categoria de produtos de um cupom já lançado e refaz as linhas dele (uma por categoria).
+
+    ``novas`` = {id do item: categoria}. Vale a categoria da linha em que o item está hoje (pode ter sido
+    trocada no editor da semana); só os itens de ``novas`` mudam. A linha de uma categoria que continua
+    mantém o id (os itens apontam para ela); categoria nova ganha linha copiada da maior; a que ficou sem
+    item sai. O total do cupom não muda. Compra parcelada: cada linha volta a ser a 1ª parcela dela.
+    Devolve (despesas, itens) atualizados.
+    """
+    from fatura_projection import parcelar
+    marca = f"NFC-e {chave}"
+    obs = despesas["observacao"].astype(str).str.strip() if "observacao" in despesas.columns else None
+    if obs is None or not obs.eq(marca).any():
+        raise ValueError("As linhas desse cupom não estão mais nas despesas.")
+    linhas = despesas[obs.eq(marca)]
+    do_cupom = itens["chave"].astype(str).eq(str(chave))
+    if not do_cupom.any():
+        raise ValueError("Esse cupom não tem produtos guardados.")
+    sub = itens[do_cupom].copy()
+    cat_da_linha = dict(zip(linhas["id"].astype(str), linhas["categoria"].astype(str)))
+    sub["categoria"] = [cat_da_linha.get(str(d), c) for d, c in zip(sub["despesa_id"], sub["categoria"])]
+    for id_item, cat in novas.items():
+        sub.loc[sub["id"].astype(str) == str(id_item), "categoria"] = cat
+
+    valores = pd.to_numeric(linhas["valor"], errors="coerce").fillna(0)
+    parcela = next((str(p) for p in linhas.get("parcela", pd.Series(dtype=str)).astype(str)
+                    if re.fullmatch(r"1/\d+", p.strip())), None)
+    n = int(parcela.split("/")[1]) if parcela else 1
+    sub["valor"] = pd.to_numeric(sub["valor"], errors="coerce").fillna(0)
+    total = float(sub["valor"].sum()) if n > 1 else float(valores.sum())
+    por_cat = agrupar_por_categoria(sub, total)
+
+    modelo = linhas.loc[valores.idxmax()].to_dict()
+    estab = str(modelo.get("descricao", "")).split(" · ")[0].strip()
+    id_por_cat = {}
+    for _, l in linhas.iterrows():
+        id_por_cat.setdefault(str(l["categoria"]), str(l["id"]))
+    novas_linhas = []
+    for cat, valor in por_cat.items():
+        linha = {**modelo, "id": id_por_cat.get(cat) or novo_id(), "categoria": cat,
+                 "descricao": f"{estab} · {cat}", "valor": round(float(valor), 2)}
+        if n > 1:
+            linha = parcelar({**linha, "data": pd.to_datetime(modelo["data"])}, n)
+            linha["data"] = modelo["data"]
+        novas_linhas.append(linha)
+    resto = despesas[~obs.eq(marca)]
+    despesas = pd.concat([resto, pd.DataFrame(novas_linhas)], ignore_index=True)[despesas.columns]
+    ids = {l["categoria"]: l["id"] for l in novas_linhas}
+    sub["despesa_id"] = sub["categoria"].map(ids)
+    itens = itens.copy()
+    itens.loc[sub.index, ["categoria", "despesa_id"]] = sub[["categoria", "despesa_id"]]
+    return despesas, itens
+
+
 def nome_lembrado(cnpj, historico_itens):
     """Último nome que vocês deram a esse CNPJ (o nome fantasia da nota às vezes é o bairro)."""
     if not cnpj or historico_itens.empty or not {"cnpj", "estabelecimento"}.issubset(historico_itens.columns):

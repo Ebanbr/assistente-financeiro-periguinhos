@@ -18,7 +18,7 @@ from leitor_qr import leitor_disponivel, ler_qr_ao_vivo
 from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_compras, concluir_pendente,
                           ler_cupom, ler_pagina_consulta, link_do_qr, sugerir_categorias, URL_CONSULTA_CHAVE,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
-                          agrupar_por_categoria, ja_lancado, nome_lembrado)
+                          agrupar_por_categoria, ja_lancado, nome_lembrado, trocar_categoria_itens)
 
 from config import (DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM,
                     CUPONS_PENDENTES_FILE, COLUNAS_CUPONS_PENDENTES)
@@ -952,6 +952,68 @@ with tab_atual:
                        f'<div class="track"><div class="fill" style="width:{val/maxv*100:.0f}%;'
                        f'background:linear-gradient(90deg,#FF5C7A,#FF8AA0)"></div></div></div>')
         st.markdown(f'<div class="cat">{linhas}</div>', unsafe_allow_html=True)
+
+    # ── Trocar a categoria dos produtos de um cupom ──────────────
+    with st.expander("🏷️ Trocar a categoria dos produtos de um cupom"):
+        _itens_all = ler_csv(ITENS_CUPOM_FILE)
+        _desp_all = ler_csv(DESPESAS_FILE)
+        _obs = (_desp_all["observacao"].astype(str).str.strip() if "observacao" in _desp_all.columns
+                else pd.Series(dtype=str))
+        _cupons = []
+        if not _itens_all.empty and "chave" in _itens_all.columns:
+            for _ch, _g in _itens_all.groupby(_itens_all["chave"].astype(str), sort=False):
+                _lin = _desp_all[_obs.eq(f"NFC-e {_ch}")]
+                if _lin.empty:
+                    continue
+                _tot = float(pd.to_numeric(_lin["valor"], errors="coerce").fillna(0).sum())
+                _cupons.append((str(_lin["data"].max()), _ch,
+                                f"{pd.to_datetime(_lin['data'].max()).strftime('%d/%m/%Y')} · "
+                                f"{str(_g['estabelecimento'].iloc[-1])} · {formatar_moeda(_tot)} · {len(_g)} itens"))
+        if not _cupons:
+            st.caption("Nenhum cupom lançado com produtos ainda.")
+        else:
+            _cupons.sort(reverse=True)
+            _rotulos = {ch: rot for _, ch, rot in _cupons}
+            _ch_sel = st.selectbox("Cupom", list(_rotulos), format_func=_rotulos.get, key="cupom_trocar_cat")
+            _lin_sel = _desp_all[_obs.eq(f"NFC-e {_ch_sel}")]
+            _cat_linha = dict(zip(_lin_sel["id"].astype(str), _lin_sel["categoria"].astype(str)))
+            _its = _itens_all[_itens_all["chave"].astype(str) == _ch_sel].copy()
+            _its["categoria"] = [_cat_linha.get(str(d), c) for d, c in zip(_its["despesa_id"], _its["categoria"])]
+            _its["valor"] = pd.to_numeric(_its["valor"], errors="coerce").fillna(0)
+            _tab = _its[["id", "descricao", "valor", "categoria"]].astype({"id": str}).reset_index(drop=True)
+            _opcoes_cat = list(dict.fromkeys(CATEGORIAS_CUPOM + CATEGORIAS_DESPESA + list(_tab["categoria"])))
+            st.caption("Troque a categoria de cada produto. O total do cupom não muda: só a divisão por categoria.")
+            _ed = st.data_editor(
+                _tab,
+                column_config={
+                    "id":        st.column_config.TextColumn("ID", disabled=True),
+                    "descricao": st.column_config.TextColumn("Produto", disabled=True, width="large"),
+                    "valor":     st.column_config.NumberColumn("Valor", format="R$ %.2f", disabled=True),
+                    "categoria": st.column_config.SelectboxColumn("Categoria", options=_opcoes_cat, required=True),
+                },
+                column_order=["descricao", "valor", "categoria"],
+                hide_index=True, use_container_width=True, num_rows="fixed", key=f"itens_cat_{_ch_sel}",
+            )
+            _novas = {r["id"]: r["categoria"] for (_, r), (_, a) in zip(_ed.iterrows(), _tab.iterrows())
+                      if r["categoria"] != a["categoria"]}
+            if st.button("💾 Salvar categorias dos produtos", type="primary", use_container_width=True,
+                         disabled=not _novas, key="btn_salvar_cat_itens"):
+                try:
+                    _d_novo, _i_novo = trocar_categoria_itens(_ch_sel, _novas, _desp_all, _itens_all, gerar_id)
+                except ValueError as e:
+                    mensagem_erro(str(e))
+                else:
+                    if not salvar_parquet("despesas", _d_novo):
+                        mensagem_erro("Gravação bloqueada por segurança — nada foi alterado. Recarregue e tente de novo.")
+                    else:
+                        invalidar_cache("despesas")
+                        if salvar_parquet("itens_cupom", _i_novo):
+                            invalidar_cache("itens_cupom")
+                            mensagem_sucesso(f"{len(_novas)} produto(s) com categoria nova.")
+                            st.rerun()
+                        else:
+                            mensagem_erro("As linhas do cupom mudaram, mas os produtos não foram gravados. "
+                                          "Recarregue e salve de novo.")
 
     # ── Histórico completo organizado por semana ─────────────────
     st.divider()

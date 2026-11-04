@@ -338,3 +338,57 @@ def test_qualquer_estado_com_link_de_sefaz(monkeypatch):
         validar_link(f"http://exemplo.com/nfce?p={CHAVE}|2|1|1|AB")
     with pytest.raises(ValueError, match="nenhum estado"):
         validar_link(f"http://www.sefaz.xx.gov.br/nfce?p={'99' + CHAVE[2:]}|2|1|1|AB")
+
+
+def _cupom_lancado(parcela=""):
+    obs = f"NFC-e {CHAVE}"
+    despesas = pd.DataFrame([
+        {"id": "outro", "data": "2026-11-03", "descricao": "Padaria", "categoria": "🥖 Padaria", "valor": 5.0,
+         "observacao": "", "parcela": ""},
+        {"id": "L1", "data": "2026-11-03", "descricao": "Mercado · 🛒 Supermercado", "categoria": "🛒 Supermercado",
+         "valor": 30.57, "observacao": obs, "parcela": parcela},
+        {"id": "L2", "data": "2026-11-03", "descricao": "Mercado · 🥬 Hortifruti", "categoria": "🥬 Hortifruti",
+         "valor": 4.0, "observacao": obs, "parcela": parcela},
+    ])
+    itens = pd.DataFrame([
+        {"id": "i1", "chave": CHAVE, "descricao": "SACO P/LIXO", "valor": 26.59, "categoria": "🛒 Supermercado", "despesa_id": "L1"},
+        {"id": "i2", "chave": CHAVE, "descricao": "AGUA SANITARIA", "valor": 1.99, "categoria": "🛒 Supermercado", "despesa_id": "L1"},
+        {"id": "i3", "chave": CHAVE, "descricao": "AGUA SANITARIA", "valor": 1.99, "categoria": "🛒 Supermercado", "despesa_id": "L1"},
+        {"id": "i4", "chave": CHAVE, "descricao": "BANANA", "valor": 4.0, "categoria": "🥬 Hortifruti", "despesa_id": "L2"},
+    ])
+    return despesas, itens
+
+
+def test_trocar_categoria_de_produtos_refaz_as_linhas_do_cupom():
+    from cupom_fiscal import trocar_categoria_itens
+    despesas, itens = _cupom_lancado()
+    ids = iter(["NOVA"])
+    # só a água sanitária vai para Limpeza: Supermercado fica com o saco, Limpeza ganha linha nova
+    d, it = trocar_categoria_itens(CHAVE, {"i2": "🧽 Limpeza", "i3": "🧽 Limpeza"}, despesas, itens, lambda: next(ids))
+    cupom = d[d["observacao"] == f"NFC-e {CHAVE}"].set_index("categoria")
+    assert cupom.loc["🛒 Supermercado", "valor"] == 26.59 and cupom.loc["🛒 Supermercado", "id"] == "L1"
+    assert cupom.loc["🧽 Limpeza", "valor"] == 3.98 and cupom.loc["🧽 Limpeza", "id"] == "NOVA"
+    assert cupom.loc["🧽 Limpeza", "descricao"] == "Mercado · 🧽 Limpeza"
+    assert round(cupom["valor"].sum(), 2) == 34.57 and "outro" in set(d["id"])
+    assert list(it.set_index("id").loc[["i2", "i3"], "despesa_id"]) == ["NOVA", "NOVA"]
+    # todos os produtos da linha mudam: a linha antiga sai, ninguém aponta para ela
+    d2, it2 = trocar_categoria_itens(CHAVE, {"i1": "🧽 Limpeza"}, d, it, lambda: "X")
+    cupom2 = d2[d2["observacao"] == f"NFC-e {CHAVE}"]
+    assert set(cupom2["categoria"]) == {"🧽 Limpeza", "🥬 Hortifruti"} and "L1" not in set(d2["id"])
+    assert cupom2.set_index("categoria").loc["🧽 Limpeza", "valor"] == 30.57
+    assert set(it2["despesa_id"]) == set(cupom2["id"])
+
+
+def test_trocar_categoria_vale_a_categoria_da_linha_e_mantem_parcelas():
+    from cupom_fiscal import trocar_categoria_itens
+    despesas, itens = _cupom_lancado(parcela="1/2")
+    despesas.loc[despesas["id"] == "L1", "valor"] = 15.29            # 1ª parcela de 30,57
+    despesas.loc[despesas["id"] == "L2", ["valor", "categoria"]] = [2.0, "🍽️ Alimentação"]  # trocada no editor
+    d, it = trocar_categoria_itens(CHAVE, {"i2": "🧽 Limpeza"}, despesas, itens, lambda: "N")
+    cupom = d[d["observacao"] == f"NFC-e {CHAVE}"].set_index("categoria")
+    assert set(cupom.index) == {"🛒 Supermercado", "🧽 Limpeza", "🍽️ Alimentação"}
+    assert cupom.loc["🛒 Supermercado", "valor"] == 14.29 and cupom.loc["🛒 Supermercado", "parcela"] == "1/2"
+    assert cupom.loc["🧽 Limpeza", "valor"] == 1.0 and cupom.loc["🍽️ Alimentação", "valor"] == 2.0
+    assert it.set_index("id").loc["i4", "categoria"] == "🍽️ Alimentação"
+    with pytest.raises(ValueError):
+        trocar_categoria_itens("0" * 44, {}, despesas, itens, lambda: "N")

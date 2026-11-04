@@ -307,3 +307,32 @@ def test_analise_sem_fatura_importada_mantem_todo_lancamento_manual():
          "forma_pagamento": "💳 Crédito"},
     ])
     assert despesas_da_analise(df)["id"].tolist() == ["s1"]
+
+
+def test_parcelas_dividem_o_valor_e_o_centavo_fica_na_primeira():
+    from fatura_projection import parcelar, valores_parcelas
+    assert valores_parcelas(280.46, 2) == (140.23, 140.23)
+    assert valores_parcelas(100.00, 3) == (33.34, 33.33)
+    linha = {"id": "x", "data": "2026-11-03", "valor": 100.0, "forma_pagamento": "💳 Crédito"}
+    assert parcelar(linha, 1) is linha                                   # à vista: nada muda
+    p = parcelar(linha, 3)
+    assert (p["valor"], p["parcela"], p["data_compra"]) == (33.34, "1/3", "03/11/2026")
+
+
+def test_parcela_lancada_a_mao_entra_na_projecao_ate_a_fatura_chegar():
+    from fatura_projection import parcelar, projetar_parcelas
+    fatura = {"data": "2026-11-01", "valor": 100.0, "fonte": "C6 Bank", "banco": "C6 BRU",
+              "forma_pagamento": "💳 Crédito", "data_compra": "01/11/2026", "observacao": "", "descricao": "LOJA"}
+    farmacia = parcelar({"id": "s1", "data": "2026-11-03", "descricao": "Farmácia", "valor": 280.46,
+                         "fonte": "Semanal", "banco": "C6 BRU", "forma_pagamento": "💳 Crédito"}, 2)
+    df = pd.DataFrame([{**fatura, "id": "f1"}, farmacia])
+    # compra de 03/11 depois da fatura 11/2026 → 1ª parcela na fatura 12/2026, 2ª na 01/2027
+    assert projetar_parcelas(df, 2026, 12, "C6 BRU")["total"] == 0.0
+    jan = projetar_parcelas(df, 2027, 1, "C6 BRU")
+    assert jan["total"] == 140.23 and jan["itens"]["parcela_projetada"].tolist() == [2]
+    assert projetar_parcelas(df, 2027, 2, "C6 BRU")["total"] == 0.0      # 2x: acabou
+    # chegou a fatura 12/2026 com a 1/2 do banco: a linha à mão sai e vale a do banco (sem contar duas vezes)
+    banco = {**fatura, "id": "f2", "data": "2026-12-01", "data_compra": "03/11/2026", "descricao": "PAGUE MENOS",
+             "valor": 140.23, "parcela": "1/2"}
+    df2 = pd.concat([df, pd.DataFrame([banco])], ignore_index=True)
+    assert projetar_parcelas(df2, 2027, 1, "C6 BRU")["total"] == 140.23

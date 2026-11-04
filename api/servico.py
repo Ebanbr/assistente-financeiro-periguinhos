@@ -15,8 +15,8 @@ from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_
                           linhas_pendentes, marca_pendente, nome_lembrado, sugerir_categorias)
 from dados import gerar_id
 from expense_defaults import categoria_do_local
-from fatura_projection import (faturas_encerradas, inicio_ciclo_aberto, inicio_semana, janela_semana,
-                               resumo_categorias)
+from fatura_projection import (MAX_PARCELAS, faturas_encerradas, inicio_ciclo_aberto, inicio_semana,
+                               janela_semana, parcelar, parse_parcela, resumo_categorias)
 
 FONTE_SEMANAL = "Semanal"
 CARTAO_FATURA = "C6 BRU"          # cartão cujo encerramento recorta a semana (como na página)
@@ -136,6 +136,7 @@ def _compras_json(gastos, itens):
             "chave": compra["chave"], "nome": compra["nome"], "total": compra["total"],
             "cupom": bool(compra["chave"]),
             "itens_pendentes": any("itens pendentes" in _texto(o) for o in linhas.get("observacao", [])),
+            "parcela": next((_texto(x) for x in linhas.get("parcela", []) if _texto(x)), ""),
             "forma_pagamento": " / ".join(dict.fromkeys(linhas["forma_pagamento"].astype(str))),
             "lancado_por": " / ".join(dict.fromkeys(x for x in linhas.get("lancado_por", pd.Series(dtype=str))
                                                     .fillna("").astype(str) if x)),
@@ -219,6 +220,19 @@ def _validar_gasto(dados, cats):
             "forma_pagamento": forma, "banco": banco}
 
 
+def _parcelas(dados, forma):
+    """Nº de parcelas do pedido: só no crédito; à vista = 1."""
+    try:
+        n = int(dados.get("parcelas") or 1)
+    except (TypeError, ValueError):
+        raise ErroDeUso("Número de parcelas inválido.")
+    if n < 1 or n > MAX_PARCELAS:
+        raise ErroDeUso(f"Parcelas: de 1 a {MAX_PARCELAS}.")
+    if n > 1 and forma != "💳 Crédito":
+        raise ErroDeUso("Só dá para parcelar no crédito.")
+    return n
+
+
 def _ja_existe(despesas, data, descricao, valor):
     if despesas.empty:
         return False
@@ -229,6 +243,8 @@ def _ja_existe(despesas, data, descricao, valor):
 
 def lancar_gasto(planilha, dados, usuario):
     campos = _validar_gasto(dados, categorias(planilha))
+    n = _parcelas(dados, campos["forma_pagamento"])
+    campos = parcelar(campos, n)
     if _ja_existe(planilha.ler("despesas", fresca=True), campos["data"], campos["descricao"], campos["valor"]):
         raise Duplicado("Esse gasto já parece estar lançado (mesma data, descrição e valor).")
     linha = {"id": gerar_id(), **campos, "status": "Pago", "observacao": "", "fonte": FONTE_SEMANAL,
@@ -308,6 +324,8 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
         "estabelecimento": nome_lembrado(cupom["cnpj"], hist) or cupom["estabelecimento"].title(),
         "forma_pagamento": (_texto(pend["forma_pagamento"]) if pend is not None else cupom["forma_pagamento"]),
         "banco": _texto(pend["banco"]) if pend is not None else "",
+        # trocar o total pelos itens mantém o parcelamento escolhido no total
+        "parcelas": (parse_parcela(pend.get("parcela")) or (1, 1))[1] if pend is not None else 1,
         "ja_lancado": bool(ja_lancado(cupom["chave"], despesas)),
         "substitui_total": pend is not None,
         "itens": [{"item": int(r.item), "descricao": r.descricao, "quantidade": float(r.quantidade),
@@ -380,6 +398,8 @@ def lancar_cupom(planilha, pedido, usuario, leitor=ler_cupom):
         "valor": round(float(valor), 2), "forma_pagamento": forma, "banco": banco, "status": "Pago",
         "observacao": f"NFC-e {chave}", "fonte": FONTE_SEMANAL, "criado_em": criado, "lancado_por": usuario,
     } for cat, valor in por_cat.items()]
+    n = _parcelas(pedido, forma)
+    linhas = [parcelar(l, n) for l in linhas]          # cada categoria vira a 1ª parcela dela
     planilha.anexar("despesas", linhas)
     if pend is not None:
         planilha.excluir("despesas", "id", [_texto(pend["id"])])
@@ -427,12 +447,12 @@ def lancar_cupom_so_total(planilha, pedido, usuario, leitor_offline=None):
     if linhas_pendentes(dados["chave"], despesas).any() or ja_lancado(dados["chave"], despesas):
         raise Duplicado("Esse cupom já está lançado.")
     criado = agora()
-    planilha.anexar("despesas", [{
+    planilha.anexar("despesas", [parcelar({
         "id": gerar_id(), "data": dados["data"], "descricao": estab, "categoria": categoria,
         "valor": dados["total"], "forma_pagamento": forma, "banco": banco, "status": "Pago",
         "observacao": marca_pendente(dados["chave"]), "fonte": FONTE_SEMANAL, "criado_em": criado,
         "lancado_por": usuario,
-    }])
+    }, _parcelas(pedido, forma))])
     planilha.anexar("cupons_pendentes", [dict(zip(COLUNAS_CUPONS_PENDENTES, [
         gerar_id(), dados["chave"], dados["link"], dados["data"], estab, dados["total"], criado]))])
     return {"total": dados["total"], "estabelecimento": estab}

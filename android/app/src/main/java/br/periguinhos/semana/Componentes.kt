@@ -35,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.text.Normalizer
 import java.time.Instant
@@ -155,3 +157,19 @@ fun EscolherData(atual: LocalDate, aoFechar: () -> Unit, aoEscolher: (LocalDate)
         dismissButton = { TextButton(onClick = aoFechar) { Text("Cancelar") } },
     ) { DatePicker(estado) }
 }
+
+/** Nº de parcelas no crédito (1 = à vista); mostra quanto fica cada parcela. */
+@Composable
+fun CampoParcelas(parcelas: String, total: Double?, aoMudar: (String) -> Unit) {
+    val n = parcelas.toIntOrNull()
+    OutlinedTextField(
+        parcelas, { aoMudar(it.filter(Char::isDigit).take(2)) }, label = { Text("Parcelas") }, singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        supportingText = {
+            Text(if (n != null && n > 1 && total != null) "${n}x de ${reais(total / n)} · conta só a parcela de cada mês"
+                 else "1 = à vista")
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+

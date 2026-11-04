@@ -29,7 +29,7 @@ from utils import (esc,
     salvar_despesas_novas, listar_categorias,
 )
 from fatura_projection import (
-    projetar_parcelas, mascara_credito_cartao, inicio_semana,
+    projetar_parcelas, mascara_credito_cartao, inicio_semana, parcelar, parse_parcela, MAX_PARCELAS,
     intervalo_fatura, aplicar_edicoes_semanais,
     faturas_encerradas, fatura_aberta, janela_semana, inicio_ciclo_aberto, lancamentos_semanais_fatura,
     meses_fatura_importados, semanas_fatura_importada, ciclo_fatura_importada, resumo_categorias,
@@ -140,6 +140,8 @@ with tab_atual:
                                      placeholder="Escolha a categoria", key="novo_gasto_categoria")
                 g_pag = st.selectbox("Forma de pagamento:", ["💳 Crédito", "💳 Débito", "📱 PIX", "💵 Dinheiro"])
                 g_cartao = st.selectbox("Cartão (somente para crédito):", ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"])
+                g_parcelas = st.number_input("Parcelas (crédito):", min_value=1, max_value=MAX_PARCELAS, value=1, step=1,
+                                             help="1 = à vista. Parcelado: grava a 1ª parcela (como na fatura do C6) e projeta as próximas nos meses seguintes.")
             with cg3:
                 g_valor = st.number_input("Valor (R$):", value=None, step=None, placeholder="0,00", format="%.2f",
                                           help="Estorno ou troca: valor negativo (ex.: -60,38), na categoria da compra.")
@@ -152,13 +154,13 @@ with tab_atual:
                 elif not g_valor:
                     mensagem_erro("Informe o valor (estorno entra negativo).")
                 else:
-                    nova = pd.DataFrame([{
+                    nova = pd.DataFrame([parcelar({
                         "id": gerar_id(), "data": g_data.strftime("%Y-%m-%d"),
                         "descricao": g_desc.strip(), "categoria": g_cat,
                         "valor": round(float(g_valor), 2), "forma_pagamento": g_pag,
                         "banco": g_cartao if g_pag == "💳 Crédito" else "", "status": "Pago", "observacao": "",
                         "fonte": FONTE_SEMANAL, "criado_em": agora(),
-                    }])
+                    }, g_parcelas if g_pag == "💳 Crédito" else 1)])
                     n = salvar_despesas_novas(nova)
                     if n > 0:
                         st.session_state["_limpar_novo_gasto"] = True
@@ -348,6 +350,10 @@ with tab_atual:
                     cartao_cupom = st.selectbox("Cartão (somente para crédito):", cartoes,
                                                 index=cartoes.index(cartao_padrao) if cartao_padrao in cartoes else 0,
                                                 key=f"cupom_cartao_{cupom['chave']}")
+                    _parc_pend = parse_parcela(linha_pend.get("parcela")) if linha_pend is not None else None
+                    parcelas_cupom = st.number_input("Parcelas (crédito):", min_value=1, max_value=MAX_PARCELAS, step=1,
+                                                     value=_parc_pend[1] if _parc_pend else 1,
+                                                     key=f"cupom_parcelas_{cupom['chave']}", help="1 = à vista. Parcelado: grava a 1ª parcela (como na fatura do C6) e projeta as próximas nos meses seguintes.")
 
                 if st.button("💾 Lançar cupom", type="primary", use_container_width=True):
                     if not estab_cupom:
@@ -370,6 +376,8 @@ with tab_atual:
                                 "status": "Pago", "observacao": obs,
                                 "fonte": FONTE_SEMANAL, "criado_em": criado,
                             })
+                        if forma_cupom == "💳 Crédito":
+                            linhas = [parcelar(l, parcelas_cupom) for l in linhas]
                         if linha_pend is not None:
                             # troca a linha só com o total (nota offline) pela divisão por categoria
                             base_d = ler_csv(DESPESAS_FILE)
@@ -458,6 +466,8 @@ with tab_atual:
                     cartao_p = st.selectbox("Cartão (somente para crédito):",
                                             ["C6 BRU", "C6 PRI", "Nubank", "Não se aplica"],
                                             key=f"pend_cartao_{pendente['chave']}")
+                    parcelas_p = st.number_input("Parcelas (crédito):", min_value=1, max_value=MAX_PARCELAS, value=1,
+                                                 step=1, key=f"pend_parcelas_{pendente['chave']}", help="1 = à vista. Parcelado: grava a 1ª parcela (como na fatura do C6) e projeta as próximas nos meses seguintes.")
                 rotulo_p = f" ({formatar_moeda(total_p)})" if total_p else ""
                 if st.button(f"⚡ Lançar agora só com o total{rotulo_p}", type="primary", use_container_width=True):
                     if not total_p:
@@ -471,13 +481,13 @@ with tab_atual:
                     elif pd.isna(data_p) or data_p.date() > HOJE:
                         mensagem_erro("A data do cupom é inválida.")
                     else:
-                        n = salvar_despesas_novas(pd.DataFrame([{
+                        n = salvar_despesas_novas(pd.DataFrame([parcelar({
                             "id": gerar_id(), "data": data_p.strftime("%Y-%m-%d"), "descricao": estab_p,
                             "categoria": cat_p, "valor": round(float(total_p), 2), "forma_pagamento": forma_p,
                             "banco": cartao_p if forma_p == "💳 Crédito" else "", "status": "Pago",
                             "observacao": marca_pendente(pendente["chave"]),
                             "fonte": FONTE_SEMANAL, "criado_em": agora(),
-                        }]))
+                        }, parcelas_p if forma_p == "💳 Crédito" else 1)]))
                         if n > 0:
                             invalidar_cache("despesas")
                             # guarda o link do QR: depois é só tocar em "Já chegou?", sem precisar do papel
@@ -627,7 +637,7 @@ with tab_atual:
                 else:
                     mensagem_erro("Não foi possível reabrir a fatura.")
 
-    proj = projetar_parcelas(df_d, ano_fatura, mes_fatura, cartao_proj)
+    proj = projetar_parcelas(df_d, ano_fatura, mes_fatura, cartao_proj, df_fechamentos)
 
     # O valor informado pelo usuário é a fonte principal da estimativa. É salvo em
     # uma aba própria do Sheets para sobreviver aos reinícios do Streamlit Cloud.
@@ -742,7 +752,7 @@ with tab_atual:
     for _n_mes in range(1, 13):
         _ref_fut = ref_ts + pd.DateOffset(months=_n_mes)
         _af, _mf = int(_ref_fut.year), int(_ref_fut.month)
-        _proj_fut = projetar_parcelas(df_d, _af, _mf, cartao_proj)
+        _proj_fut = projetar_parcelas(df_d, _af, _mf, cartao_proj, df_fechamentos)
         _mask_bf = (
             df_bases["ano"].eq(_af) & df_bases["mes"].eq(_mf)
             & df_bases["cartao"].astype(str).str.strip().str.casefold().eq(cartao_proj.casefold())

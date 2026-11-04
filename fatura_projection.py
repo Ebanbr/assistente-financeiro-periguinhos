@@ -14,15 +14,42 @@ def parse_parcela(valor):
     return (atual, total) if 1 <= atual <= total else None
 
 
+MAX_PARCELAS = 24
+
+
+def valores_parcelas(total, n):
+    """(1ª parcela, demais) de ``total`` em ``n`` vezes; o centavo que sobra fica na 1ª, como no cartão."""
+    n = max(int(n or 1), 1)
+    centavos = round(float(total) * 100)
+    demais = int(centavos / n)                    # trunca em direção a zero (vale para estorno também)
+    return (centavos - demais * (n - 1)) / 100, demais / 100
+
+
+def parcelar(linha, n):
+    """Lançamento à mão no crédito parcelado em ``n`` vezes: a linha passa a valer a 1ª parcela e guarda
+    ``parcela`` ("1/n") e ``data_compra`` (dd/mm/aaaa), como a linha da fatura importada. As parcelas
+    seguintes entram pela projeção (``projetar_parcelas``) até a fatura do banco chegar."""
+    n = int(n or 1)
+    if n <= 1:
+        return linha
+    if n > MAX_PARCELAS:
+        raise ValueError(f"No máximo {MAX_PARCELAS} parcelas.")
+    primeira, _ = valores_parcelas(linha["valor"], n)
+    return {**linha, "valor": primeira, "parcela": f"1/{n}",
+            "data_compra": pd.Timestamp(linha["data"]).strftime("%d/%m/%Y")}
+
+
 def meses_entre(origem, destino):
     return (destino.year - origem.year) * 12 + destino.month - origem.month
 
 
-def projetar_parcelas(df, ano, mes, cartao):
+def projetar_parcelas(df, ano, mes, cartao, fechamentos=None, fonte_semanal="Semanal"):
     """Projeta parcelas de faturas anteriores ainda devidas no mes-alvo.
 
     Cada linha representa a parcela cobrada no mes salvo em ``data``. Para um
     registro 3/10 de agosto, por exemplo, setembro recebe a 4/10 pelo mesmo valor.
+    Compras parceladas lançadas à mão (``parcela`` "1/n") entram também, no mês da fatura
+    delas (``despesas_da_analise``), até a fatura do banco chegar — depois vale a linha do banco.
     """
     vazio = {"total": 0.0, "itens": pd.DataFrame(), "com_parcela": 0, "candidatos": 0}
     if df.empty:
@@ -32,6 +59,12 @@ def projetar_parcelas(df, ano, mes, cartao):
     fonte = d.get("fonte", pd.Series("", index=d.index)).astype(str)
     banco = d.get("banco", pd.Series("", index=d.index)).astype(str).str.strip().str.casefold()
     d = d[(fonte == "C6 Bank") & (banco == str(cartao).strip().casefold())].copy()
+    if "parcela" in df.columns:
+        analise = despesas_da_analise(df, fechamentos, fonte_semanal)
+        manuais = analise[analise["fonte"].astype(str).eq(fonte_semanal)
+                          & mascara_credito_cartao(analise, cartao)
+                          & analise["parcela"].apply(parse_parcela).notna()]
+        d = pd.concat([d, manuais], ignore_index=True)
     if d.empty:
         return vazio
 

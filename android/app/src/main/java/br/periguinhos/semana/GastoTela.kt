@@ -55,6 +55,7 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
     var forma by remember { mutableStateOf(linha?.formaPagamento?.takeIf { it in opcoes.formas } ?: "💳 Crédito") }
     var cartao by remember { mutableStateOf(linha?.banco?.takeIf { it in opcoes.cartoes } ?: opcoes.cartoes.firstOrNull()) }
     var escolherData by remember { mutableStateOf(false) }
+    var parcelas by remember { mutableStateOf("1") }
     var confirmarExclusao by remember { mutableStateOf(false) }
     var salvando by remember { mutableStateOf(false) }
     var erro by remember { mutableStateOf<String?>(null) }
@@ -78,6 +79,7 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
             v == null || v == 0.0 -> "Informe o valor (estorno entra negativo)."
             categoria == null -> "Escolha a categoria."
             forma == "💳 Crédito" && cartao == null -> "Escolha o cartão."
+            parcelas.toIntOrNull()?.let { it in 1..24 } != true -> "Parcelas: de 1 a 24."
             else -> null
         }
         if (erro != null) return
@@ -86,7 +88,8 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
             try {
                 api.salvarGasto(linha?.id, JSONObject()
                     .put("data", data.toString()).put("descricao", descricao.trim()).put("categoria", categoria)
-                    .put("valor", v).put("forma_pagamento", forma).put("banco", if (forma == "💳 Crédito") cartao else ""))
+                    .put("valor", v).put("forma_pagamento", forma).put("banco", if (forma == "💳 Crédito") cartao else "")
+                    .put("parcelas", if (forma == "💳 Crédito" && linha == null) parcelas.toInt() else 1))
                 Toast.makeText(contexto, if (linha == null) "Gasto lançado: ${reais(v!!)}" else "Gasto atualizado",
                     Toast.LENGTH_SHORT).show()
                 aoSair(true)
@@ -143,6 +146,7 @@ fun GastoTela(api: Api, opcoes: Opcoes, linha: Linha?, aoSair: (Boolean) -> Unit
         if (forma == "💳 Crédito") {
             Text("Cartão", color = MaterialTheme.colorScheme.onSurfaceVariant)
             Escolha(opcoes.cartoes, cartao) { cartao = it }
+            if (linha == null) CampoParcelas(parcelas, lerValor(valor)) { parcelas = it }
         }
         erro?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Button(onClick = ::salvar, enabled = !salvando, modifier = Modifier.fillMaxWidth().height(52.dp)) {

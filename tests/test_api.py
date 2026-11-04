@@ -228,3 +228,22 @@ def test_contingencia_sem_itens_pela_pagina_da_consulta_troca_o_total():
     assert all("pendentes" not in l["observacao"] for l in do_cupom) and len(do_cupom) >= 2
     assert round(sum(float(l["valor"]) for l in do_cupom), 2) == 1020.5
     assert len(p.abas["itens_cupom"]) == 3
+
+
+def test_gasto_e_cupom_parcelados_no_credito():
+    p = PlanilhaFalsa(despesas=[_gasto()])
+    pedido = {"data": "2026-10-27", "descricao": "Farmácia", "categoria": "🥖 Padaria", "valor": 280.46,
+              "forma_pagamento": "💳 Crédito", "banco": "C6 BRU", "parcelas": 2}
+    linha = servico.lancar_gasto(p, pedido, "Bruno")
+    assert (linha["valor"], linha["parcela"], linha["data_compra"]) == (140.23, "1/2", "27/10/2026")
+    with pytest.raises(servico.ErroDeUso, match="crédito"):
+        servico.lancar_gasto(p, {**pedido, "forma_pagamento": "📱 PIX", "descricao": "Outra"}, "Bruno")
+    with pytest.raises(servico.ErroDeUso, match="Parcelas"):
+        servico.lancar_gasto(p, {**pedido, "parcelas": 99, "descricao": "Outra"}, "Bruno")
+    servico.ler_cupom_qr(p, LINK, leitor=lambda link: ler_nfce(XML))
+    servico.lancar_cupom(p, {"chave": CHAVE, "estabelecimento": "Mercado", "forma_pagamento": "💳 Crédito",
+                             "banco": "C6 BRU", "parcelas": 3}, "Bruno")
+    do_cupom = [l for l in p.abas["despesas"] if CHAVE in str(l["observacao"])]
+    assert do_cupom and all(l["parcela"] == "1/3" for l in do_cupom)
+    assert all(l["observacao"] == f"NFC-e {CHAVE}" for l in do_cupom)     # observação intacta: cupom continua reconhecido
+    assert abs(sum(l["valor"] for l in do_cupom) - 20.62 / 3) < 0.05

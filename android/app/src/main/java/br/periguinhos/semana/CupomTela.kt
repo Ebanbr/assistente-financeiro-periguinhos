@@ -72,6 +72,7 @@ fun CupomTela(
     var totalDigitado by remember { mutableStateOf("") }
     var data by remember { mutableStateOf(LocalDate.now()) }
     var escolherData by remember { mutableStateOf(false) }
+    var parcelas by remember { mutableStateOf(leitura.optInt("parcelas", 1).coerceAtLeast(1).toString()) }
 
     fun enviar() {
         val digitado = lerValor(totalDigitado)
@@ -81,6 +82,7 @@ fun CupomTela(
             forma == null -> "Escolha a forma de pagamento."
             forma == "💳 Crédito" && cartao == null -> "Escolha o cartão."
             status != "ok" && categoriaTotal == null -> "Escolha a categoria."
+            parcelas.toIntOrNull()?.let { it in 1..24 } != true -> "Parcelas: de 1 a 24."
             else -> null
         }
         if (erro != null) return
@@ -89,6 +91,7 @@ fun CupomTela(
             try {
                 val pedido = JSONObject().put("link", link).put("estabelecimento", estab.trim())
                     .put("forma_pagamento", forma).put("banco", if (forma == "💳 Crédito") cartao else "")
+                    .put("parcelas", if (forma == "💳 Crédito") parcelas.toInt() else 1)
                 if (status == "ok") {
                     val cats = JSONObject()
                     itens.forEach { cats.put(it.item.toString(), it.categoria) }
@@ -177,6 +180,7 @@ fun CupomTela(
                 Spacer(Modifier.height(8.dp))
                 Text("Cartão", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Escolha(opcoes.cartoes, cartao) { cartao = it }
+                CampoParcelas(parcelas, if (totalNoQr) total else lerValor(totalDigitado)) { parcelas = it }
             }
         }
         if (status == "ok") {

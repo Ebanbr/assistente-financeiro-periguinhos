@@ -61,6 +61,7 @@ data class CategoriaCompra(val id: String, val categoria: String, val valor: Dou
 data class Compra(
     val chave: String?, val nome: String, val total: Double, val cupom: Boolean, val itensPendentes: Boolean,
     val formaPagamento: String, val lancadoPor: String, val linhas: List<Linha>, val categorias: List<CategoriaCompra>,
+    val parcela: String = "",
 ) {
     companion object {
         fun de(j: JSONObject) = Compra(
@@ -74,6 +75,7 @@ data class Compra(
                             p.optDouble("valor", 0.0))
                     })
             },
+            j.texto("parcela"),
         )
     }
 }

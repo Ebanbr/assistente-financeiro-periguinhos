@@ -46,6 +46,7 @@ class Gasto(BaseModel):
     valor: float | None = None
     forma_pagamento: str | None = None
     banco: str | None = None
+    parcelas: int = 1                   # crédito parcelado: grava a 1ª parcela + "1/n"
 
 
 class LinkQR(BaseModel):
@@ -60,6 +61,7 @@ class LancarCupom(BaseModel):
     banco: str | None = None
     categorias: dict[str, str] = {}     # nº do item → categoria escolhida (o resto fica a sugerida)
     html: str | None = None             # página da consulta pela chave (nota de contingência)
+    parcelas: int = 1
 
 
 class PaginaConsulta(BaseModel):
@@ -75,6 +77,7 @@ class CupomSoTotal(BaseModel):
     banco: str | None = None
     total: float | None = None          # nota normal: o QR não traz o total
     data: str | None = None
+    parcelas: int = 1
 
 
 @app.get("/saude")

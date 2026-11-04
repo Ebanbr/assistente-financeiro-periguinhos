@@ -333,6 +333,7 @@ private fun CompraCartao(compra: Compra, aoEditar: (Linha) -> Unit) {
                             unica?.categoria?.let(::add)
                         }
                         if (compra.itensPendentes) add("itens pendentes")
+                        compra.parcela.takeIf { it.isNotBlank() }?.let { add("parcela $it") }
                         add(compra.formaPagamento)
                         compra.lancadoPor.takeIf { it.isNotBlank() }?.let(::add)
                     }.joinToString(" · ")

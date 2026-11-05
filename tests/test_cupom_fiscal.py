@@ -392,3 +392,9 @@ def test_trocar_categoria_vale_a_categoria_da_linha_e_mantem_parcelas():
     assert it.set_index("id").loc["i4", "categoria"] == "🍽️ Alimentação"
     with pytest.raises(ValueError):
         trocar_categoria_itens("0" * 44, {}, despesas, itens, lambda: "N")
+
+
+@pytest.mark.parametrize("sujeira", ["﻿{}", "​{}​", "]Q1{}", "{}\r\n", "{}\x00", " {} ", "�{}"])
+def test_link_do_leitor_com_caractere_a_mais_continua_valendo(sujeira):
+    limpo = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe?p={CHAVE}|2|1|1|ABCDEF"
+    assert validar_link(sujeira.format(limpo)) == limpo

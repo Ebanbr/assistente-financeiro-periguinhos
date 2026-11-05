@@ -4,6 +4,7 @@ Mesmas regras da página 📆 Gastos Semanais — reaproveita fatura_projection,
 expense_defaults. ``planilha`` é qualquer objeto com ler/anexar/atualizar/excluir (nos testes,
 uma planilha em memória).
 """
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -310,6 +311,9 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
         return {"status": "sem_itens", "mensagem": str(e), "chave": d["chave"], "data": d["data"],
                 "total": d["total"], "ja_lancado": bool(ja_lancado(d["chave"], despesas))}
     except ValueError as e:
+        # vai para o log do Cloud Run: mostra o que o leitor entregou, sem a chave nem o hash
+        texto = re.sub(r"\d{6,}|[0-9A-Fa-f]{16,}", "#", _texto(link))
+        print(f"cupom recusado: {e!s:.120} | {ascii(texto)[:200]}", flush=True)
         raise ErroDeUso(str(e))
 
     cats = opcoes(planilha)["categorias_cupom"]

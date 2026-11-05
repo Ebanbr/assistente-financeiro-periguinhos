@@ -4,6 +4,7 @@ O link do QR (`http://nfce.sefaz.pe.gov.br/nfce/consulta?p=...`) devolve o XML
 completo da nota, sem CAPTCHA. Tudo aqui é função pura, exceto `baixar_xml`.
 """
 import re
+import unicodedata
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote, urlsplit
 
@@ -74,7 +75,11 @@ _TPAG_FORMA = {"01": "💵 Dinheiro", "03": "💳 Crédito", "04": "💳 Débito
 def validar_link(link):
     """Devolve o link normalizado se for um QR Code de NFC-e conhecido; senão levanta ValueError."""
     # celular costuma copiar o link com o "|" codificado (%7C) e às vezes com espaço/quebra de linha
-    link = re.sub(r"\s+", "", unquote(link or ""))
+    # e leitor de QR pode entregar caractere invisível ou prefixo antes do "http": fica só o endereço
+    link = "".join(c for c in unquote(link or "") if not c.isspace() and c != "\ufffd"
+                   and unicodedata.category(c) not in ("Cc", "Cf"))
+    inicio = re.search(r"https?://", link, re.I)
+    link = link[inicio.start():] if inicio else link
     # alguns caixas/leitores entregam ".../consultarNFCe<chave>|..." sem o "?p="
     link = re.sub(r"(consultar?NFCe|consulta)/?(\d{44}\|)", r"\1?p=\2", link, flags=re.I)
     if not link:

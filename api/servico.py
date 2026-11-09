@@ -332,10 +332,20 @@ def ler_cupom_qr(planilha, link, leitor=ler_cupom):
         "parcelas": (parse_parcela(pend.get("parcela")) or (1, 1))[1] if pend is not None else 1,
         "ja_lancado": bool(ja_lancado(cupom["chave"], despesas)),
         "substitui_total": pend is not None,
+        # gasto lançado à mão que pode ser a mesma compra: o app pergunta se o cupom o substitui
+        "parecidos": [] if pend is not None else _parecidos(despesas, cupom["data"], cupom["total"]),
         "itens": [{"item": int(r.item), "descricao": r.descricao, "quantidade": float(r.quantidade),
                    "unidade": r.unidade, "valor": float(r.valor), "categoria": r.categoria}
                   for r in itens.itertuples()],
     }
+
+
+def _parecidos(despesas, data, total):
+    from cupom_fiscal import manuais_parecidos, total_da_compra
+    return [{"id": _texto(l.get("id")), "data": _texto(l.get("data"))[:10], "descricao": _texto(l.get("descricao")),
+             "categoria": _texto(l.get("categoria")), "valor": round(float(l.get("valor") or 0), 2),
+             "parcela": _texto(l.get("parcela")), "total_compra": total_da_compra(l)}
+            for l in manuais_parecidos(despesas, data, total).head(5).to_dict("records")]
 
 
 def ler_cupom_pagina(planilha, chave, html):
@@ -393,20 +403,34 @@ def lancar_cupom(planilha, pedido, usuario, leitor=ler_cupom):
     if ja_lancado(chave, despesas):
         raise Duplicado("Esse cupom já foi lançado.")
     pend = _linha_pendente(chave, despesas)
+    total, n = cupom["total"], _parcelas(pedido, forma)
+    manual = None
+    substituir = _texto(pedido.get("substituir_id")).strip()
+    if substituir and pend is None:
+        achado = despesas[despesas["id"].astype(str).eq(substituir)]
+        if achado.empty:
+            raise ErroDeUso("O gasto lançado à mão que seria trocado não existe mais. Leia o cupom de novo.")
+        manual = achado.iloc[0]
+        if "NFC-e" in _texto(manual.get("observacao")):
+            raise ErroDeUso("Esse gasto já é de outro cupom.")
+        from cupom_fiscal import substituir_manual
+        itens, total, n = substituir_manual(manual.to_dict(), itens, total, n if forma == "💳 Crédito" else 1)
 
     criado, dia = agora(), data.strftime("%Y-%m-%d")
-    por_cat = agrupar_por_categoria(itens, cupom["total"])
+    por_cat = agrupar_por_categoria(itens, total)
     ids_cat = {cat: gerar_id() for cat in por_cat.index}
     linhas = [{
         "id": ids_cat[cat], "data": dia, "descricao": f"{estab} · {cat}", "categoria": cat,
         "valor": round(float(valor), 2), "forma_pagamento": forma, "banco": banco, "status": "Pago",
         "observacao": f"NFC-e {chave}", "fonte": FONTE_SEMANAL, "criado_em": criado, "lancado_por": usuario,
     } for cat, valor in por_cat.items()]
-    n = _parcelas(pedido, forma)
-    linhas = [parcelar(l, n) for l in linhas]          # cada categoria vira a 1ª parcela dela
+    if forma == "💳 Crédito":
+        linhas = [parcelar(l, n) for l in linhas]      # cada categoria vira a 1ª parcela dela
     planilha.anexar("despesas", linhas)
     if pend is not None:
         planilha.excluir("despesas", "id", [_texto(pend["id"])])
+    if manual is not None:                             # o cupom substitui o gasto lançado à mão
+        planilha.excluir("despesas", "id", [_texto(manual["id"])])
 
     novos = itens.assign(
         id=[gerar_id() for _ in range(len(itens))], chave=chave, data=dia, estabelecimento=estab,

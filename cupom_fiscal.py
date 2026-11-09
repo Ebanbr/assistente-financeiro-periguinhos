@@ -610,3 +610,58 @@ def ja_lancado(chave, despesas):
     if not chave or despesas.empty or "observacao" not in despesas.columns:
         return False
     return despesas["observacao"].astype(str).str.strip().eq(f"NFC-e {chave}").any()
+
+
+def total_da_compra(linha):
+    """Valor da compra inteira de uma linha de gasto: parcela 1/n vale ~valor × n."""
+    from fatura_projection import parse_parcela
+    valor = float(pd.to_numeric(linha.get("valor"), errors="coerce") or 0)
+    parc = parse_parcela(linha.get("parcela"))
+    return round(valor * parc[1], 2) if parc and parc[0] == 1 else round(valor, 2)
+
+
+def manuais_parecidos(despesas, data, total, dias=3, tolerancia=0.15):
+    """Gastos lançados à mão que podem ser a mesma compra do cupom (para perguntar se o cupom substitui).
+
+    Vale lançamento manual da semana (``fonte=Semanal``, sem ``NFC-e`` na observação) a até ``dias`` dias
+    da data do cupom e com o valor da compra a até ``tolerancia`` (15%) do total da nota: o valor cobrado
+    pode diferir da nota (ex.: desconto do app do posto pago pela carteira digital). Mais parecido primeiro.
+    """
+    if despesas.empty or total is None:
+        return despesas.iloc[0:0]
+    dia = pd.to_datetime(data, errors="coerce")
+    if pd.isna(dia):
+        return despesas.iloc[0:0]
+    obs = despesas.get("observacao", pd.Series("", index=despesas.index)).fillna("").astype(str)
+    datas = pd.to_datetime(despesas["data"], errors="coerce")
+    base = despesas[despesas.get("fonte", pd.Series("", index=despesas.index)).astype(str).eq("Semanal")
+                    & ~obs.str.contains("NFC-e", regex=False)
+                    & ((datas - dia).abs() <= pd.Timedelta(days=dias))].copy()
+    if base.empty:
+        return base
+    base["_compra"] = [total_da_compra(l) for l in base.to_dict("records")]
+    base["_dif"] = (base["_compra"] - float(total)).abs()
+    base = base[(base["_compra"] > 0) & (base["_dif"] <= max(float(total) * tolerancia, 0.05))]
+    base["_dias"] = (datas[base.index] - dia).abs()
+    return base.sort_values(["_dif", "_dias"]).drop(columns=["_dif", "_dias"])
+
+
+def substituir_manual(linha_manual, itens, total_nota, parcelas):
+    """Cupom que troca um gasto lançado à mão: (itens, total, parcelas) a gravar.
+
+    O lançamento à mão foi feito pelo que o banco cobrou, então o valor dele vale: se diferir do total da
+    nota (desconto pago fora do caixa, como o do app do posto), os itens são rateados até ele
+    (``ratear_ao_total``; diferença acima de 50% não mexe). Parcelado à mão (1/n) mantém as n parcelas,
+    a menos que o cupom já venha com parcelas escolhidas.
+    """
+    from fatura_projection import parse_parcela
+    parc = parse_parcela(linha_manual.get("parcela"))
+    n_manual = parc[1] if parc and parc[0] == 1 else 1
+    n = int(parcelas or 1) if int(parcelas or 1) > 1 else n_manual
+    cobrado = total_da_compra(linha_manual)
+    total = float(total_nota)
+    if abs(cobrado - total) > 0.01 * n_manual:
+        itens = ratear_ao_total(itens, cobrado)
+        if abs(float(itens["valor"].sum()) - cobrado) < 0.01:
+            total = cobrado
+    return itens, round(total, 2), n

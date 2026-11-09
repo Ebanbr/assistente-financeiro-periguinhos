@@ -62,6 +62,7 @@ class LancarCupom(BaseModel):
     categorias: dict[str, str] = {}     # nº do item → categoria escolhida (o resto fica a sugerida)
     html: str | None = None             # página da consulta pela chave (nota de contingência)
     parcelas: int = 1
+    substituir_id: str | None = None    # gasto lançado à mão que o cupom substitui (mesma compra)
 
 
 class PaginaConsulta(BaseModel):

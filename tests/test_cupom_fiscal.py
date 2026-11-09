@@ -398,3 +398,17 @@ def test_trocar_categoria_vale_a_categoria_da_linha_e_mantem_parcelas():
 def test_link_do_leitor_com_caractere_a_mais_continua_valendo(sujeira):
     limpo = f"http://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe?p={CHAVE}|2|1|1|ABCDEF"
     assert validar_link(sujeira.format(limpo)) == limpo
+
+
+def test_manuais_parecidos_so_lancamento_a_mao_perto_da_data_e_do_valor():
+    from cupom_fiscal import manuais_parecidos
+    d = pd.DataFrame([
+        {"id": "a", "data": "2026-11-09", "valor": 278.62, "parcela": "", "fonte": "Semanal", "observacao": ""},
+        {"id": "b", "data": "2026-11-09", "valor": 291.12, "parcela": "", "fonte": "Semanal", "observacao": "NFC-e 1"},
+        {"id": "c", "data": "2026-11-01", "valor": 291.12, "parcela": "", "fonte": "Semanal", "observacao": ""},
+        {"id": "d", "data": "2026-11-09", "valor": 291.12, "parcela": "", "fonte": "C6 Bank", "observacao": ""},
+        {"id": "e", "data": "2026-11-08", "valor": 54.99, "parcela": "1/2", "fonte": "Semanal", "observacao": ""},
+        {"id": "f", "data": "2026-11-09", "valor": 150.00, "parcela": "", "fonte": "Semanal", "observacao": ""},
+    ])
+    assert list(manuais_parecidos(d, "2026-11-09", 291.12)["id"]) == ["a"]
+    assert list(manuais_parecidos(d, "2026-11-07", 109.98)["id"]) == ["e"]

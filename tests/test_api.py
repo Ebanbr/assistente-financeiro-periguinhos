@@ -247,3 +247,34 @@ def test_gasto_e_cupom_parcelados_no_credito():
     assert do_cupom and all(l["parcela"] == "1/3" for l in do_cupom)
     assert all(l["observacao"] == f"NFC-e {CHAVE}" for l in do_cupom)     # observação intacta: cupom continua reconhecido
     assert abs(sum(l["valor"] for l in do_cupom) - 20.62 / 3) < 0.05
+
+
+def test_cupom_pergunta_e_substitui_o_gasto_lancado_a_mao():
+    # gasto à mão parcelado (como a Havaianas) + um bem diferente que não é a mesma compra
+    p = PlanilhaFalsa(despesas=[_gasto(id="m1", data="2026-10-09", descricao="Mercado", valor="10.31",
+                                       parcela="1/2", data_compra="09/10/2026"),
+                                _gasto(id="m2", data="2026-10-10", valor="99.00")])
+    lido = servico.ler_cupom_qr(p, LINK, leitor=lambda link: ler_nfce(XML))
+    assert [x["id"] for x in lido["parecidos"]] == ["m1"] and lido["parecidos"][0]["total_compra"] == 20.62
+    r = servico.lancar_cupom(p, {"chave": CHAVE, "estabelecimento": "Mercado Exemplo", "forma_pagamento": "💳 Crédito",
+                                 "banco": "C6 BRU", "substituir_id": "m1"}, "BOo")
+    ids = [l["id"] for l in p.abas["despesas"]]
+    assert "m1" not in ids and "m2" in ids
+    cupom = [l for l in p.abas["despesas"] if l["observacao"] == f"NFC-e {CHAVE}"]
+    assert all(l["parcela"] == "1/2" for l in cupom)              # manteve o parcelamento do lançamento à mão
+    assert r["total"] == 20.62
+
+
+def test_cupom_que_substitui_vale_o_que_o_banco_cobrou():
+    # posto pago pela carteira do app: a nota diz 20,62 e o cartão cobrou 19,62
+    p = PlanilhaFalsa(despesas=[_gasto(id="m1", data="2026-10-10", descricao="Posto", valor="19.62")])
+    servico.ler_cupom_qr(p, LINK, leitor=lambda link: ler_nfce(XML))
+    r = servico.lancar_cupom(p, {"chave": CHAVE, "estabelecimento": "Posto", "forma_pagamento": "💳 Crédito",
+                                 "banco": "C6 BRU", "substituir_id": "m1"}, "BOo")
+    assert r["total"] == 19.62
+    assert round(sum(float(l["valor"]) for l in p.abas["itens_cupom"]), 2) == 19.62
+    desconto_nota = float(ler_nfce(XML)["itens"]["desconto"].sum())
+    assert round(sum(float(l["desconto"]) for l in p.abas["itens_cupom"]) - desconto_nota, 2) == 1.0
+    with pytest.raises(servico.ErroDeUso, match="não existe"):
+        servico.lancar_cupom(p, {"chave": "x" * 44, "link": LINK, "estabelecimento": "X", "forma_pagamento": "📱 PIX",
+                                 "substituir_id": "sumiu"}, "BOo", leitor=lambda link: {**ler_nfce(XML), "chave": "9" * 44})

@@ -73,6 +73,18 @@ fun CupomTela(
     var data by remember { mutableStateOf(LocalDate.now()) }
     var escolherData by remember { mutableStateOf(false) }
     var parcelas by remember { mutableStateOf(leitura.optInt("parcelas", 1).coerceAtLeast(1).toString()) }
+    // gastos lançados à mão que podem ser a mesma compra: pergunta se o cupom substitui
+    val parecidos = remember {
+        val a = leitura.optJSONArray("parecidos")
+        (0 until (a?.length() ?: 0)).map { a!!.getJSONObject(it) }
+    }
+    val rotulos = parecidos.map { p ->
+        "${dataBr(p.optString("data"))} · ${p.optString("descricao")} · ${reais(p.optDouble("valor"))}" +
+            p.optString("parcela").takeIf { it.isNotBlank() && it != "null" }?.let { " ($it)" }.orEmpty()
+    }
+    val naoEMesma = "Não, é outra compra"
+    var resposta by remember { mutableStateOf<String?>(null) }
+    val substituir = rotulos.indexOf(resposta).takeIf { it >= 0 }?.let { parecidos[it] }
 
     fun enviar() {
         val digitado = lerValor(totalDigitado)
@@ -82,6 +94,8 @@ fun CupomTela(
             forma == null -> "Escolha a forma de pagamento."
             forma == "💳 Crédito" && cartao == null -> "Escolha o cartão."
             status != "ok" && categoriaTotal == null -> "Escolha a categoria."
+            status == "ok" && parecidos.isNotEmpty() && resposta == null ->
+                "Responda se é a mesma compra que você já lançou à mão."
             parcelas.toIntOrNull()?.let { it in 1..24 } != true -> "Parcelas: de 1 a 24."
             else -> null
         }
@@ -96,6 +110,7 @@ fun CupomTela(
                     val cats = JSONObject()
                     itens.forEach { cats.put(it.item.toString(), it.categoria) }
                     leitura.optString("_html").takeIf { it.isNotBlank() }?.let { pedido.put("html", it) }
+                    substituir?.let { pedido.put("substituir_id", it.optString("id")) }
                     api.lancarCupom(pedido.put("chave", chave).put("categorias", cats))
                     Toast.makeText(contexto, "Cupom lançado: ${estab.trim()} · ${reais(total)}", Toast.LENGTH_SHORT).show()
                 } else {
@@ -155,6 +170,24 @@ fun CupomTela(
                         Text(leitura.optString("mensagem") + " Dá para lançar só com o total, ou pegar os itens " +
                             "consultando a nota pela chave no site da SEFAZ (você marca o \"Não sou um robô\").")
                         TextButton(onClick = { aoConsultarSefaz(chave) }) { Text("🔎 Consultar na SEFAZ") }
+                    }
+                }
+            }
+        }
+        if (status == "ok" && parecidos.isNotEmpty()) {
+            item {
+                Bloco {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Você já lançou à mão um gasto parecido. É a mesma compra?", fontWeight = FontWeight.SemiBold)
+                        Text("Se for, o cupom substitui o lançamento à mão (fica o valor que você lançou, " +
+                            "que é o que o banco cobrou, e as mesmas parcelas). Se não for, os dois ficam.",
+                            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Escolha(rotulos + naoEMesma, resposta) { r ->
+                            resposta = r
+                            val escolhido = rotulos.indexOf(r).takeIf { it >= 0 }?.let { parecidos[it] }
+                            val n = escolhido?.optString("parcela")?.substringAfter("/", "")?.toIntOrNull()
+                            if (n != null && n > 1) parcelas = n.toString()
+                        }
                     }
                 }
             }
@@ -222,6 +255,7 @@ fun CupomTela(
                 Text(when {
                     salvando -> "Lançando…"
                     status == "ok" && leitura.optBoolean("substitui_total") -> "💾 Trocar o total pela divisão"
+                    status == "ok" && substituir != null -> "💾 Trocar o lançamento à mão pelo cupom"
                     status == "ok" -> "💾 Lançar cupom"
                     totalNoQr -> "⚡ Lançar só com o total (${reais(total)})"
                     else -> "⚡ Lançar com o total"

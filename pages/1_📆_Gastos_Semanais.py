@@ -18,7 +18,8 @@ from leitor_qr import leitor_disponivel, ler_qr_ao_vivo
 from cupom_fiscal import (CATEGORIAS_CUPOM, NotaPendente, NotaSemItens, agrupar_compras, concluir_pendente,
                           ler_cupom, ler_pagina_consulta, link_do_qr, sugerir_categorias, URL_CONSULTA_CHAVE,
                           linhas_pendentes, marca_pendente, cupons_aguardando,
-                          agrupar_por_categoria, ja_lancado, nome_lembrado, trocar_categoria_itens)
+                          agrupar_por_categoria, ja_lancado, nome_lembrado, trocar_categoria_itens,
+                          manuais_parecidos, substituir_manual)
 
 from config import (DESPESAS_FILE, CONFIG_FILE, ITENS_CUPOM_FILE, COLUNAS_ITENS_CUPOM,
                     CUPONS_PENDENTES_FILE, COLUNAS_CUPONS_PENDENTES)
@@ -329,10 +330,31 @@ with tab_atual:
                     },
                     column_order=["descricao", "quantidade", "unidade", "valor", "categoria"],
                 )
-                por_cat = agrupar_por_categoria(itens_ed, cupom["total"])
+                # gasto lançado à mão que pode ser a mesma compra: pergunta se o cupom o substitui
+                linha_manual = None
+                parecidos = (manuais_parecidos(despesas_atual, cupom["data"], cupom["total"]).head(5)
+                             if linha_pend is None else despesas_atual.iloc[0:0])
+                if not parecidos.empty:
+                    _nao = "Não, é outra compra"
+                    _rot = {f"{pd.to_datetime(r['data']).strftime('%d/%m')} · {r['descricao']} · "
+                            f"{formatar_moeda(float(r['valor']))}"
+                            + (f" ({r['parcela']})" if str(r.get('parcela') or '').strip() else ""): r
+                            for r in parecidos.to_dict("records")}
+                    _resp = st.radio("**Você já lançou à mão um gasto parecido. É a mesma compra?**",
+                                     list(_rot) + [_nao], index=None, key=f"cupom_subst_{cupom['chave']}",
+                                     help="Se for, o cupom substitui o lançamento à mão: fica o valor que você "
+                                          "lançou (o que o banco cobrou) e as mesmas parcelas. Se não for, os dois ficam.")
+                    linha_manual = _rot.get(_resp)
+                total_cupom = cupom["total"]
+                if linha_manual is not None:
+                    itens_ed, total_cupom, _n_manual = substituir_manual(linha_manual, itens_ed, cupom["total"], 1)
+                    if abs(total_cupom - float(cupom["total"])) >= 0.01:
+                        st.info(f"Vale o valor lançado à mão ({formatar_moeda(total_cupom)}); a diferença para a "
+                                f"nota ({formatar_moeda(cupom['total'])}) entra como desconto nos itens.")
+                por_cat = agrupar_por_categoria(itens_ed, total_cupom)
                 st.markdown("**Vai entrar assim na semana:** " + " · ".join(
                     f"{esc(c)} {formatar_moeda(v)}" for c, v in por_cat.items()))
-                if abs(float(por_cat.sum()) - float(cupom["total"])) >= 0.01:
+                if abs(float(por_cat.sum()) - float(total_cupom)) >= 0.01:
                     mensagem_aviso(f"A soma dos itens ({formatar_moeda(por_cat.sum())}) não bate com o total "
                                    f"da nota ({formatar_moeda(cupom['total'])}). Confira antes de lançar.")
 
@@ -350,13 +372,17 @@ with tab_atual:
                     cartao_cupom = st.selectbox("Cartão (somente para crédito):", cartoes,
                                                 index=cartoes.index(cartao_padrao) if cartao_padrao in cartoes else 0,
                                                 key=f"cupom_cartao_{cupom['chave']}")
-                    _parc_pend = parse_parcela(linha_pend.get("parcela")) if linha_pend is not None else None
+                    _origem = linha_pend if linha_pend is not None else linha_manual
+                    _parc_pend = parse_parcela(_origem.get("parcela")) if _origem is not None else None
                     parcelas_cupom = st.number_input("Parcelas (crédito):", min_value=1, max_value=MAX_PARCELAS, step=1,
                                                      value=_parc_pend[1] if _parc_pend else 1,
-                                                     key=f"cupom_parcelas_{cupom['chave']}", help="1 = à vista. Parcelado: grava a 1ª parcela (como na fatura do C6) e projeta as próximas nos meses seguintes.")
+                                                     key=f"cupom_parcelas_{cupom['chave']}_{_parc_pend[1] if _parc_pend else 1}", help="1 = à vista. Parcelado: grava a 1ª parcela (como na fatura do C6) e projeta as próximas nos meses seguintes.")
 
-                if st.button("💾 Lançar cupom", type="primary", use_container_width=True):
-                    if not estab_cupom:
+                _rotulo_botao = "💾 Trocar o lançamento à mão pelo cupom" if linha_manual is not None else "💾 Lançar cupom"
+                if st.button(_rotulo_botao, type="primary", use_container_width=True):
+                    if not parecidos.empty and _resp is None:
+                        mensagem_erro("Responda se é a mesma compra que você já lançou à mão.")
+                    elif not estab_cupom:
                         mensagem_erro("Informe o estabelecimento.")
                     elif not forma_cupom:
                         mensagem_erro("Escolha a forma de pagamento.")
@@ -378,10 +404,12 @@ with tab_atual:
                             })
                         if forma_cupom == "💳 Crédito":
                             linhas = [parcelar(l, parcelas_cupom) for l in linhas]
-                        if linha_pend is not None:
-                            # troca a linha só com o total (nota offline) pela divisão por categoria
+                        if linha_pend is not None or linha_manual is not None:
+                            # troca a linha só com o total (nota offline) ou o gasto lançado à mão pela divisão
                             base_d = ler_csv(DESPESAS_FILE)
                             base_d = base_d[~linhas_pendentes(cupom["chave"], base_d)]
+                            if linha_manual is not None:
+                                base_d = base_d[base_d["id"].astype(str) != str(linha_manual["id"])]
                             gravou = salvar_parquet("despesas", pd.concat([base_d, pd.DataFrame(linhas)],
                                                                           ignore_index=True))
                             n = len(linhas) if gravou else -1

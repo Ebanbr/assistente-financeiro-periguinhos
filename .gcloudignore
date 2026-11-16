@@ -5,6 +5,7 @@
 !config.py
 !dados.py
 !categorias.py
+!bebidas_alcoolicas.py
 !cupom_fiscal.py
 !expense_defaults.py
 !fatura_projection.py

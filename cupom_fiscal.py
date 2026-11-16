@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlsplit
 
 import pandas as pd
 
+from bebidas_alcoolicas import CATEGORIA_ALCOOLICAS, eh_alcoolica
 from expense_defaults import categoria_do_local
 
 NS = {"n": "http://www.portalfiscal.inf.br/nfe"}
@@ -42,6 +43,7 @@ CATEGORIAS_CUPOM = [
     "🥖 Padaria",
     "🥫 Mercearia",
     "🥤 Bebidas",
+    CATEGORIA_ALCOOLICAS,
     "🧽 Limpeza",
     "🧴 Higiene e Beleza",
     "🐾 Pets",
@@ -515,10 +517,12 @@ def categoria_por_ncm(ncm):
 
 
 def sugerir_categorias(itens, historico_itens, categorias):
-    """Categoria de cada item: a que vocês já deram ao mesmo produto > NCM > padrão."""
+    """Categoria de cada item: a que vocês já deram ao mesmo produto > bebida alcoólica > NCM > padrão."""
     sugestoes = []
     for _, item in itens.iterrows():
         categoria = categoria_do_local(item["descricao"], historico_itens, categorias)
+        if not categoria and eh_alcoolica(item["descricao"], item.get("ncm")):
+            categoria = CATEGORIA_ALCOOLICAS
         if not categoria:
             categoria = categoria_por_ncm(item["ncm"])
         sugestoes.append(categoria if categoria in categorias else CATEGORIA_PADRAO_CUPOM)
